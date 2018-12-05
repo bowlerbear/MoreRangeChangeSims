@@ -8,6 +8,12 @@
 #            probabilities
 #  NVisits - number of visits. Defaults to 4
 #   NPlots - number of plots.  Ignored if length(PrOcc) > 1. Defaults to 100
+# Outputs:
+#  Data fraome with three columns:
+#    Occupancy: occupancy (Bernoulli)
+#    Observations: number of presences
+#    Visits: Number of visits
+
 SimOcc <- function(PrOcc, PrObs, NVisits = 4, NPlots = 100) {
   if(length(PrOcc)!=length(PrObs)) stop("PrOcc and PrObs should be same length")
   if(length(PrOcc)==1) PrOcc <- rep(PrOcc, NPlots)
@@ -16,5 +22,5 @@ SimOcc <- function(PrOcc, PrObs, NVisits = 4, NPlots = 100) {
   
   Occ <- rbinom(length(PrOcc), 1, PrOcc)
   Obs <- rbinom(length(PrOcc), NVisits, PrObs)*Occ
-  cbind(Occupancy=Occ, Observations=Obs, Visits=NVisits)
+  data.frame(Occupancy=Occ, Observations=Obs, Visits=NVisits)
 }
