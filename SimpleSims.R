@@ -29,16 +29,22 @@ Occ <- data.frame(apply(PrOcc, 2, function(pr) rbinom(length(pr), 1, pr)))
 rownames(Occ) <- paste0("Site", seq_along(PrOcc[,1]))
 colnames(Occ) <- paste0("Species", seq_along(PrOcc[1,]))
 
-
+Occ[,1] <- Occ[,1]*0
 # From the occupancy, simulate observations for different visits
 
 #  (this is still being written)
 Occ$NVisits <- rep(5, nrow(Occ))
-Obs <- apply(Occ, 1, function(Occ, PrObs = 0.5) {
-  Obs <- rep(Occ["NVisits"])
-  
-  
-})
+Obs <- sapply(rownames(Occ), function(site, Occ, PrObs = 0.5) {
+  nvisits <- Occ[site,"NVisits"]
+  occ <- unlist(Occ[site, names(Occ)!="NVisits"])
+  obs <- replicate(nvisits, rbinom(length(occ), 1, PrObs))
+  obs <- t(obs*occ)
+  colnames(obs) <- names(occ)
+  obs
+}, Occ=Occ, simplify=FALSE)
+
+Obs <- plyr::ldply(Obs)
+names(Obs) <- gsub(".id", "Site", names(Obs))
 
 
 
