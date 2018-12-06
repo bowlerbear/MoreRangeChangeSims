@@ -48,6 +48,38 @@ names(Obs) <- gsub(".id", "Site", names(Obs))
 
 
 
+# small edits to match sims outoput with sparta input data - CO
+
+library(sparta)
+
+# to run the model from visit level data, use the occDetFunc function in sparta
 
 
-#
+# data element 1: spp_vis - a dataframe with visit in first column
+# and taxa for remaining columns, TRUE or FALSE depending om observations
+
+# first, take the obs table and make the "site" column a visit (combination of
+# site and date), this needs to be unique.  Currently combine row name and site name.
+
+spp_vis <- Obs
+
+spp_vis$Site <- paste(spp_vis$Site, "_", rownames(spp_vis), sep = "")
+colnames(spp_vis)[1] <- "visit"
+
+# change 1s and 0s to TRUE and FALSE
+
+spp_vis[, 2:ncol(spp_vis)] <- spp_vis[, 2:ncol(spp_vis)] == 1
+
+
+# data element 2: occDetData - dataframe giving the site, list length and year
+
+# calculate list length of each visit
+occDetData <- spp_vis$visit
+
+occDetData <- cbind(occDetData, apply(X = spp_vis[, 2:ncol(spp_vis)], MARGIN = 1, FUN = sum))
+
+# need to add in the year
+
+ colnames(occDetData) <- c("visit", "year", "LL")
+  
+
