@@ -12,8 +12,8 @@ FirstSims <- SimOcc(PrOcc=ProbOcc, PrObs=ProbOcc, NVisits = 10)
 # A workflow
 
 #  1. Use N species, and S sites
-NSpecies <- 4
-NSites <- 8
+NSpecies <- 10
+NSites <- 20
 
 ACovariate <- rnorm(NSites)
 
@@ -34,20 +34,91 @@ Occ[,1] <- Occ[,1]*0
 
 #  (this is still being written)
 Occ$NVisits <- rep(5, nrow(Occ))
-Obs <- sapply(rownames(Occ), function(site, Occ, PrObs = 0.5) {
-  nvisits <- Occ[site,"NVisits"]
-  occ <- unlist(Occ[site, names(Occ)!="NVisits"])
-  obs <- replicate(nvisits, rbinom(length(occ), 1, PrObs))
-  obs <- t(obs*occ)
-  colnames(obs) <- names(occ)
-  obs
-}, Occ=Occ, simplify=FALSE)
 
-Obs <- plyr::ldply(Obs)
-names(Obs) <- gsub(".id", "Site", names(Obs))
+# repeat this section for a number of years
+nYear <- 5
+
+All.Obs <- NULL
+
+for (i in 1:nYear){
+  
+  Obs <- sapply(rownames(Occ), function(site, Occ, PrObs = 0.5) {
+    nvisits <- Occ[site,"NVisits"]
+    occ <- unlist(Occ[site, names(Occ)!="NVisits"])
+    obs <- replicate(nvisits, rbinom(length(occ), 1, PrObs))
+    obs <- t(obs*occ)
+    colnames(obs) <- names(occ)
+    obs
+  }, Occ=Occ, simplify=FALSE)
+  
+  Obs <- plyr::ldply(Obs)
+  
+  # add a year column
+  Obs$year <- i
+  
+  # rearrange
+  Obs <- Obs[, c(1, ncol(Obs), 2:(ncol(Obs)-1))]
+  names(Obs) <- gsub(".id", "Site", names(Obs))
+  
+  All.Obs <- rbind(All.Obs, Obs)
+}
 
 
 
 
+# small edits to match sims output with sparta input data - CO 06/12/2018
 
-#
+library(sparta)
+
+# to run the model from visit level data, use the occDetFunc function in sparta
+# function requires 2 data elements (usually created by the formatOccData function)
+
+# data element 1: spp_vis - a dataframe with visit in first column
+# and taxa for remaining columns, TRUE or FALSE depending om observations
+
+# first, take the obs table and make the "site" column a visit (combination of
+# site, date and year), this needs to be unique.  Currently combine row name and site name.
+
+spp_vis <- All.Obs
+
+# visit: name combined to represent "site_date_year"
+spp_vis$Site <- paste(spp_vis$Site, "_", rownames(spp_vis), "_", spp_vis$year, sep = "")
+colnames(spp_vis)[1] <- "visit"
+
+# change 1s and 0s to TRUE and FALSE
+spp_vis[, 3:ncol(spp_vis)] <- spp_vis[, 3:ncol(spp_vis)] == 1
+
+
+# extract this now before removing the year column
+occDetData <- spp_vis[, c("visit", "year")]
+
+# remove year column
+spp_vis <- spp_vis[, c(1, 3:ncol(spp_vis))]
+
+# data element 2: occDetData - dataframe giving the site, list length and TP (time period)
+occDetData <- cbind(occDetData, apply(X = spp_vis[, 3:ncol(spp_vis)], MARGIN = 1, FUN = sum))
+
+colnames(occDetData) <- c("visit", "TP", "L")
+  
+occDetData$site <- sub("_.*", "", occDetData$visit)
+
+# currently there are visits with no observations, don't have these in real datasets
+# remove these
+occDetData <- occDetData[!occDetData$L == 0, ]
+
+# filter off these visits with 0 LL from the spp_vis
+spp_vis <- spp_vis[spp_vis$visit %in% occDetData$visit, ]
+
+# check that these fit into the sparta function
+
+out <- occDetFunc(taxa_name = "Species1", 
+                  occDetdata = occDetData, 
+                  spp_vis = spp_vis, 
+                  n_iterations = 10, 
+                  nyr = 1, 
+                  burnin = 2, 
+                  thinning = 1, 
+                  n_chains = 3, 
+                  modeltype = c("ranwalk", "halfcauchy", "catlistlength"))
+
+# this currently works 06/12/2018
