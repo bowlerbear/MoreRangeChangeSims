@@ -34,18 +34,37 @@ beta <- rnorm(NSpecies, 0.1,0.4) #random variation among species in their slopes
 sapply(dir("R/"), function(file) source(paste0("R/", file)))
 ActualOcc <- getOccuHistory(alpha=alpha, beta=beta, covariates=ACovariate)
 
+# Simulate data 
+OccData <- getRepeatVisits(...)
 
-
-
-# 2. Simulate occupancy
-
-
-# Simulate data
 # Degrade data
+#  This should have a function or each type of degradation, that returns a data frame 
+#      that looks like the input (possibly with some rows & coulmns deleted)
+# OccDataDeg <- DegradeData(...)
+
 # (Calculate diagnostics)
+#   This is an off-shoot. We can ignore it for now
+
 # Format data for sparta
+
+OccData.sparta <- FormatDataForSparta(OccData)
+  
+out <- occDetFunc(taxa_name = "Species1", 
+                  occDetdata = OccData.sparta$occDetData, 
+                  spp_vis = OccData.sparta$spp_vis, 
+                  n_iterations = 10, 
+                  nyr = 1, 
+                  burnin = 2, 
+                  thinning = 1, 
+                  n_chains = 3, 
+                  modeltype = c("ranwalk", "halfcauchy", "catlistlength"))
+
+
+
 # Fit model in sparta
+#  ...
 # Summarise simulations
+#  ...
 
 
 
@@ -80,50 +99,7 @@ for (i in 1:nYear){
   All.Obs <- rbind(All.Obs, Obs)
 }
 
-getRepeatVisits <- function(nVisits=5, PrObs = DetProb){
 
-    Occ$NVisits <- rep(nVisits, nrow(Occ))
-    
-    #simulate the visits
-    Obs <- sapply(rownames(Occ), function(site, Occ, PrObs = DetProb) {
-    nvisits <- Occ[site,"NVisits"]
-    occ <- unlist(Occ[site, names(Occ)!="NVisits"])
-    obs <- replicate(nvisits, rbinom(length(occ), 1, PrObs))
-    obs <- t(obs*occ)
-    colnames(obs) <- names(occ)
-    obs
-    }, Occ=Occ, simplify=FALSE)
-
-    #unlist and reorganise the data frame    
-    Obs <- plyr::ldply(Obs)
-    names(Obs) <- gsub(".id", "Site", names(Obs))
-    
-    #Add Visit Number
-    Obs$Visit <- rep(1:nVisits,NSpecies)
-    
-    #melt data frame
-    library(reshape)
-    Obs <- melt(Obs,id=c("Site","Visit"))
-    names(Obs)[which(names(Obs)=="variable")] <- "Species"
-    names(Obs)[which(names(Obs)=="value")] <- "obs"
-    
-    #Remove numbers from site and species names
-    Obs$Site <- as.numeric(gsub("Site","",Obs$Site))
-    Obs$Species <- as.numeric(gsub("Species","",Obs$Species))
-    
-    #return data frame
-    return(Obs)
-    
-}
-
-plotHistory <- function(obs){
-  require(ggplot)
-  ggplot(obs)+
-    geom_point(aes(x=Visit,y=Species,color=factor(obs)),size=2)+
-    scale_colour_manual(values=c("black","white"))+
-    theme(legend.position="none")+
-    facet_wrap(~Site)
-}
 
 
 # small edits to match sims output with sparta input data - CO 06/12/2018
