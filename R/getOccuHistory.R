@@ -1,20 +1,28 @@
 # This function simulated "true" occupancy
 #   Arguments:
 #   alpha - intercept (on logit scale) for occupancy
-#   beta - slopes for covariate effects
+#   beta - slopes for covariate effects. Vector or data frame/matrix. 
+#          Can be a scale, when the same effect is used over all species and covariates
+#          If a vector, one per species
+#          If a data frame, species in columns, covaraites in rows
+
 #   covariates - vector or data frame/marix of covariate values
 #  Returns a data frame of "true" occupancies with sites in rows and species in columns
 getOccuHistory <- function(alpha=0, beta=0, covariates=NULL) {
   if(length(alpha)==1) warning("same intercept used for all species")
-  
-    if(!is.null(covariates)) {
-    if(!is.vector(covariates)){
-      if(length(beta)==1) warning("same slope used for all covariates")
-      if(length(beta)!=ncol(covariates)) stop("Need as many betas as covariates")
-    } else {
-      if(length(beta)>1) stop("Only one covariate, so must have only one beta")
+  if(!is.null(covariates)) {
+    if(length(beta)==1) {
+      warning("same slope used for all covariates and species")
+      } else {
+      if(is.vector(covariates)) { # if only one covariate
+        if(length(beta)!=length(alpha)) stop("Need as many betas as alphas (= number of species)")
+      } else {
+        if(ncol(beta)!=length(alpha)) stop("Need as many beta columns as species")
+        if(nrow(beta)!=ncol(covariates)) stop("Need as many beta rows as covaraites")
+      }
     }
   }
+
   #linear predictor to relate to predicted expected occurence
   lgtPrOcc <- alpha + covariates%o%beta
   PrOcc <- 1/(1 + exp(-lgtPrOcc))

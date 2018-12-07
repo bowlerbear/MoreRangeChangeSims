@@ -27,11 +27,12 @@ FirstSims <- SimOcc(PrOcc=ProbOcc, PrObs=ProbOcc, NVisits = 10)
 NSpecies <- 4
 NSites <- 8
 ACovariate <- rnorm(NSites)
-alpha <- rnorm(NSpecies, 0, OccProb)#random variation among species in their intercept
+alpha <- rnorm(NSpecies, 0, 0.1)#random variation among species in their intercept
 beta <- rnorm(NSpecies, 0.1,0.4) #random variation among species in their slopes
 
 # Simulate actual occupancy
-ActualOcc <- getOccuHistory(alpha=alpha, beta=1, covaiates=ACovariate)
+sapply(dir("R/"), function(file) source(paste0("R/", file)))
+ActualOcc <- getOccuHistory(alpha=alpha, beta=beta, covariates=ACovariate)
 
 
 
