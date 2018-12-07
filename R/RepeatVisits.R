@@ -1,10 +1,28 @@
-getRepeatVisits <- function(nVisits=5, PrObs = DetProb){
+getRepeatVisits <- function(occ, nVisits=5, PrObs = DetProb){
   
-  if(length(PrOcc)==1) PrOcc <- rep(PrOcc, NPlots)
-  if(length(PrObs)==1) PrObs <- rep(PrObs, NPlots)
-  if(length(NVisits)==1) NVisits <- rep(NVisits, NPlots)
+  #extract metadata
+  NPlots = nrow(occ)
+  NSpecies = ncol(occ)
   
-  Occ$NVisits <- rep(nVisits, nrow(Occ))
+  #defense programming: number of visits per site
+  if(length(nVisits)==1){
+    Visits <- rep(nVisits, NPlots)
+  }#allow each site to have a different number of visits
+  else if(length(nVisits)==NPlots){
+    Visits <- nVisits
+  }else {
+    stop("Number of visits and plots are not compatible")
+  }
+  
+  #defense programming: detection probability per visit and site
+  if(length(DetProb)==1) {
+    PrOcc <- rep(DetProb, NPlots)
+  }#allow each site to have a different number of visits
+  else if(length(DetProb)==NPlots){
+    PrOcc <- DetProb
+  }else(length(NVisits)!=NPlots){
+    stop("Number of visits and plot not compatible")
+  }
   
   #simulate the visits using binomial sampling
   Obs <- sapply(rownames(Occ), function(site, Occ, PrObs = DetProb) {
