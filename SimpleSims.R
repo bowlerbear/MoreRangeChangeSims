@@ -49,8 +49,6 @@ ActualOcc <- getOccuHistory(alpha=alpha, beta=1, covaiates=ACovariate)
 
 
 #  (this is still being written)
-<<<<<<< HEAD
-=======
 Occ$NVisits <- rep(5, nrow(Occ))
 
 # repeat this section for a number of years
@@ -117,7 +115,6 @@ getRepeatVisits <- function(nVisits=5, PrObs = DetProb){
     
 }
 
->>>>>>> f556968365321a5defadb413a5f2f70a3668e8e1
 plotHistory <- function(obs){
   require(ggplot)
   ggplot(obs)+
