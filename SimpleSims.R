@@ -1,41 +1,52 @@
-# This carries out some simple simulations and fitting
+# A workflow
+
+#   This is the workflow we want to use. Below is a simple example
+# Create parameters
+# Simulate actual occupancy
+# Simulate data
+# Degrade data
+# (Calculate diagnostics)
+# Format data for sparta
+# Fit model in sparta
+# Summarise simulations
 
 
-source("R/SimOcc.R")
 
+
+# This is ugly: we should make the whole thing an R package
+sapply(dir("R/"), function(file) source(paste0("R/", file)))
+
+###################
+# Create parameters
+#  (this needs cleaning up!)
+#  1. Use N species, and S sites
 ProbOcc <- seq(from=0.2, to=0.9, length=100)
 ProbObs <- seq(from=0.9, to=0.2, length=100)
 FirstSims <- SimOcc(PrOcc=ProbOcc, PrObs=ProbOcc, NVisits = 10)
 
-
-# A workflow
-
-#  1. Use N species, and S sites
 NSpecies <- 4
 NSites <- 8
 ACovariate <- rnorm(NSites)
+alpha <- rnorm(NSpecies, 0, OccProb)#random variation among species in their intercept
+beta <- rnorm(NSpecies, 0.1,0.4) #random variation among species in their slopes
+
+# Simulate actual occupancy
+ActualOcc <- getOccuHistory(alpha=alpha, beta=1, covaiates=ACovariate)
+
+
 
 
 # 2. Simulate occupancy
 
-getOccuHistory <- function(occProb,alpha,beta){
-  
-  alpha <- rnorm(NSpecies, 0, OccProb)#random variation among species in their intercept
-  beta <- rnorm(NSpecies, 0.1,0.4) #random variation among species in their slopes
 
-  #linear predictor to relate to predicted expected occurence
-  lgtPrOcc <- alpha + ACovariate%o%beta
-  PrOcc <- 1/(1 + exp(-lgtPrOcc))
+# Simulate data
+# Degrade data
+# (Calculate diagnostics)
+# Format data for sparta
+# Fit model in sparta
+# Summarise simulations
 
-  #perform binomial sampling
-  Occ <- data.frame(apply(PrOcc, 2, function(pr) rbinom(length(pr), 1, pr)))
-  
-  #rearrange data frame
-  rownames(Occ) <- paste0("Site", seq_along(PrOcc[,1]))
-  colnames(Occ) <- paste0("Species", seq_along(PrOcc[1,]))
-  
-  #return to the data frame
-  return(Occ)
+
 
 #  (this is still being written)
 Occ$NVisits <- rep(5, nrow(Occ))
