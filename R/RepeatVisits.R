@@ -1,4 +1,4 @@
-getRepeatVisits <- function(occ, nVisits=5, PrObs = DetProb){
+getRepeatVisits <- function(occ, nVisits=5, PrObs = 0.5){
   
   #extract metadata
   NPlots = nrow(occ)
@@ -17,7 +17,7 @@ getRepeatVisits <- function(occ, nVisits=5, PrObs = DetProb){
   #defense programming: detection probability per visit and site
   if(length(DetProb)==1) {
     PrOcc <- rep(DetProb, NPlots)
-  }#allow each site to have a different number of visits
+  }#allow each site to have a different detection probability
   else if(length(DetProb)==NPlots){
     PrOcc <- DetProb
   }else(length(NVisits)!=NPlots){
