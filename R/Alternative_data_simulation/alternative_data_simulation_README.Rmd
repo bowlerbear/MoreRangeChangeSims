@@ -1,0 +1,27 @@
+---
+title: "alternative sim code"
+output: html_document
+---
+
+Files added to “R/Alternative_data_simulation” directory…
+
+generate_datasets_script.r
+
+Start with this one, this reads in all other functions.  This script reads in various other scripts to generate n datasets accorded to set parameters.  In here you can set recording intensity, focal species prob of occurrence and prob of detection as well as dataset level parameters including number of sites, species, years.  This is a short script that basically loops through the process depending on how many datasets you want to produce.
+
+
+Within the “R/Alternative_data_simulation/RangeChangeSims” directory…
+
+Sim_functions.r
+
+From code accompanying Nick’s paper.  Includes various functions that are called within the following 2 scripts.  The following two scripts are functions that were originally in the Sim_functions.r script, but I separated them to make some changes required for my work.  Changes included recording the true occupancy value within the dataset attributes to be compared to estimated values later.
+
+generate_all_scenarios_simsedit.r
+
+
+This is a script that details the parameters for each of the Scenarios tested in Nick’s sims paper.  As things run at the moment only Scenario A is run (even recording) as that was all I was interested in. 
+
+generaterecords_edit.r
+
+
+Called within the generate_all_scenarios function, this script uses the info provided to generate the observations on the species
