@@ -1,45 +1,32 @@
 #################################################
+
 require(reshape2)
 require(lme4)
 
-################################################# GENERIC FUNCTIONS - TO BE ADDED TO TO 'RANGE CHANGE FUNCS'
-occurrence <- function(x) length(x) > 0 # takes a vector and returns whether the length is greater than 0
+################################################# 
+#GENERIC FUNCTIONS 
+
+# takes a vector and returns whether the length is greater than 0
+occurrence <- function(x) length(x) > 0 
 
 
+#get data ready for sparta
+#takes a set of records and returns a dataframe suitable for analysis
+#columns include the list length and presence/absence of the focal specie
 cast_recs <- function(records, resolution='visit', focalspname='focal'){
-	#takes a set of records and returns a dataframe suitable for analysis
-	#columns include the list length and presence/absence of the focal species
-    #6 December: minor alterations to make it work with nonfocal species
 
-	if(resolution=='visit'){
-		castrecs <- dcast(records, Year + Site + Visit ~ ., value.var='Species', fun=LenUniq)
-		spdata <- subset(records, Species==focalspname) #simply the subset of data for the focal species
+  castrecs <- dcast(records, Year + Site + Visit ~ ., value.var='Species', fun=LenUniq)
+	spdata <- subset(records, Species==focalspname) #simply the subset of data for the focal species
 
-    } else if(resolution=='kmyr'){
-		castrecs <- dcast(records, Year + Site ~ ., value.var='Species', fun=LenUniq)
-		spdata <- subset(records, Species==focalspname) #simply the subset of data for the focal species
-		spdata <- dcast(spdata, Year + Site ~ ., value.var='Species', fun=occurrence)
-	}
+	#specify list length column
 	names(castrecs)[ncol(castrecs)] <- 'L'
 	# merge the two
 	castrecs <- merge(castrecs, spdata, all=T, nomatch=FALSE)
  
-    names(castrecs)[ncol(castrecs)] <- focalspname #changed from 'focal'
-	castrecs[ncol(castrecs)] <- as.logical(!is.na(castrecs[ncol(castrecs)]))
-    return(castrecs)
-}
-
-
-Convert_records_to_2tp <- function(records, splityr) {
-	# takes raw biological records and generates a dataframe suitable for Telfer etc
-	n1 <- with(subset(records, Year <= splityr), tapply(Site, Species, LenUniq)) # number of sites for each species in t1
-	n2 <- with(subset(records, Year > splityr), tapply(Site, Species, LenUniq))
-	d1 <- LenUniq(subset(records, Year <= splityr)$Site) # total number of sites in t1
-	d2 <- LenUniq(subset(records, Year > splityr)$Site) # total number of sites in t2
-	gridcell_counts <- data.frame(n1,n2)
-	gridcell_counts[is.na(gridcell_counts)] <- 0 # fix the bug of unrecorded species (added 10/1/13)
-    attr(gridcell_counts, 'denom') <- c(d1,d2)
-	return(gridcell_counts)
+	#specific focal species name
+  names(castrecs)[ncol(castrecs)] <- focalspname #changed from 'focal'
+	#castrecs[ncol(castrecs)] <- as.logical(!is.na(castrecs[ncol(castrecs)]))
+  return(castrecs)
 }
 
 
