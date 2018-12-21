@@ -6,47 +6,40 @@ require(lme4)
 ################################################# 
 #GENERIC FUNCTIONS 
 
+#################################################
+
+#small functions
+
 # takes a vector and returns whether the length is greater than 0
 occurrence <- function(x) length(x) > 0 
 
-
-#get data ready for sparta
-#takes a set of records and returns a dataframe suitable for analysis
-#columns include the list length and presence/absence of the focal specie
-cast_recs <- function(records, resolution='visit', focalspname='focal'){
-
-  castrecs <- dcast(records, Year + Site + Visit ~ ., value.var='Species', fun=LenUniq)
-	spdata <- subset(records, Species==focalspname) #simply the subset of data for the focal species
-
-	#specify list length column
-	names(castrecs)[ncol(castrecs)] <- 'L'
-	# merge the two
-	castrecs <- merge(castrecs, spdata, all=T, nomatch=FALSE)
- 
-	#specific focal species name
-  names(castrecs)[ncol(castrecs)] <- focalspname #changed from 'focal'
-	#castrecs[ncol(castrecs)] <- as.logical(!is.na(castrecs[ncol(castrecs)]))
-  return(castrecs)
+visit_site_Ntimes <- function(i, times, true_data){
+  # 24 April: new wrapper for recording_visit
+  replicate(times, recording_visit(true_data[i,], p_obs=attr(true_data, "p_detect")))
 }
 
+visit_these_sites <- function(sites_visited, true_data){
+  # takes a vector of sites to be visited and the set of actual observations
+  # 3 December: I added the 'pr' argument to allow different detection probabilities among species 
+  sapply(sites_visited, function(i) recording_visit(true_data[i,], p_obs=attr(true_data, "p_detect")))
+}
 
+LenUniq <- function(x) length(unique(x)) #for calculating the list length from a list of species (allows duplicates, which are ignored)
 
-################################################# SIM-SPECIFIC FUNCTIONS
+one_to_two_tail <- function(p) ifelse(p<0.5, p*2, (1-p)*2)
 
-bias_focal <- function(records, disadvantage=0.5){
-	# a clever way to simulate bias *against* is to delete records from 'well-sampled' set by stratified random sampling
-	# disadvantage defines the proportion of lists where the focal species should be 'unrecorded'
-	# If a single number then it's constant across years.
-	# if numeric, this remains constant over time. If two numbers, the second number identifies the FINAL value
-	increment <- ifelse(length(disadvantage)==1, 0, diff(disadvantage) / max(records$Year)) # which extra ones should be included in each year
-	records$record_id <- 1:nrow(records)
-	focal <- subset(records, subset=Species=='focal')
-	p_lost <- disadvantage[1] + increment * focal$Year # probability of being 'lost' (un-recorded) is a function of year and disadvantage
-	lost <- rbinom(n=nrow(focal), size=1, prob=p_lost) # a vector of zero & 1s indicating  
-	record_id_to_lose <- focal$record_id[lost==1]
-	return(records[-record_id_to_lose,]) # 
-	}
+median_occ <- function(true_data){
+  # returns the column number of true_data corresponding to the species with the median distributions size (excluding the focal)
+  # there's no which.median() function to this effectively creates that functionality
+  x <- colSums(true_data)[-1]
+  #x[order(x)] #lists species in increasing order
+  name <- names(x[order(x)][ceiling(length(x)/2)])
+  return(1 + as.numeric(gsub('spp','',name))) # add 1 because of the focal species
+}
 
+##################################################
+
+#create data function
 
 create_data <- function(nSites=500, nSpecies=25, pFocal=list(Occ=0.5, DetP=0.5), ONR=F, bsh1=2, bsh2=2){
     # 3 December: as 'old' above, except
@@ -94,8 +87,259 @@ create_data <- function(nSites=500, nSpecies=25, pFocal=list(Occ=0.5, DetP=0.5),
     return(x)  
 }
 
+###################################################################
+#get data ready for sparta
 
-### removed the original generate_records and generate_all_scenarios functions
+#takes a set of records and returns a dataframe suitable for analysis
+#columns include the list length and presence/absence of the focal specie
+cast_recs <- function(records, resolution='visit', focalspname='focal'){
+  
+  castrecs <- dcast(records, Year + Site + Visit ~ ., value.var='Species', fun=LenUniq)
+  spdata <- subset(records, Species==focalspname) #simply the subset of data for the focal species
+  
+  #specify list length column
+  names(castrecs)[ncol(castrecs)] <- 'L'
+  # merge the two
+  castrecs <- merge(castrecs, spdata, all=T, nomatch=FALSE)
+  
+  #specific focal species name
+  names(castrecs)[ncol(castrecs)] <- focalspname #changed from 'focal'
+  #castrecs[ncol(castrecs)] <- as.logical(!is.na(castrecs[ncol(castrecs)]))
+  return(castrecs)
+}
+
+
+
+#################################################################################################
+
+#run analysis
+
+#takes a simulated dataset and runs each method
+
+run_all_methods <- function(records, min_sq=5, summarize=T, nyr=3, inclMM=2, 
+                            OccMods=NULL, Frescalo=TRUE, frescalo_path=NULL){
+  
+  ######## DATA FRAME FOR visit-based analysis
+  simdata <- cast_recs(records, resolution='visit') # 0.02 seconds
+  
+  # for later: which are on well-sampled sites (3 years data)
+  i <- is.gridcell.wellsampled2(simdata, n=nyr)
+  
+  ######## WHICH SITES HAS THE FOCAL SPECIES EVER BEEN RECORDED ON? (added 1/5/13)
+  focalsites <- unique(subset(records, Species=='focal')$Site)
+  
+  ######## List Length (0.01 seconds)
+  x <- try(
+    LL_model <- summary(glm(focal ~ Year + log2(L), binomial, data=simdata, subset = L>0))$coef
+    , silent=T)
+  if(class(x)=='try-error'){
+    save(records, file='LL1_try_error.rData')
+    output <- c(output, LLsimple_trend=NA, LLsimple_p=NA)
+  } else {
+    output <- c(output, LLsimple_trend=LL_model[2,1], LLsimple_p=LL_model[2,4])
+  }
+  ## a second version of the List Length in which only sites where the focal has been EVER recorded
+  # added 1/5/13
+  x <- try(
+    LL_model2 <- summary(glm(focal ~ Year + log2(L), binomial, data=simdata, 
+                             subset = L>0 & Site %in% focalsites))$coef
+    , silent=T)
+  if(class(x)=='try-error'){
+    save(records, file='LLfs_try_error.rData')
+    output <- c(output, LLfs_trend=NA, LLfs_p=NA)
+  } else {
+    output <- c(output, LLfs_trend=LL_model2[2,1], LLfs_p=LL_model2[2,4])
+  }
+  # end bug check
+  
+  ######################################################################################## OCCUPANCY
+  # Added February 2014 by NJBI, based on code originally written by Arco & Marnix
+  
+  if(!is.null(OccMods)){
+    require(R2jags)
+    
+    ######################################## Setup BUGS data
+    
+    ni<-5000; nb<-2500; nt<-3; nc<-3 # as Marnix
+    
+    # need to get a measure of whether the species was on that site in that year, unequivocally, in zst
+    #it should have dims=c(nsite, nyear)
+    zst <- acast(simdata, Site~factor(Year), value.var='focal', max, fill=0) # initial values for the latent state = observed state
+    nyear <- LenUniq(simdata$Year) 
+    
+    # what are we going to monitor
+    parameters <- c("fit", "fit.new", "psi.fs", "regres.psi","regres.pdet", "sigma2","sd.lp", "mu.lp", "tau.lp", "pdet.alpha")
+    
+    ##################################### function
+    
+    initiate <- function(z, i=1) {
+      init <- list (z=z,  alpha.p=rep(runif(1, -2, 2), nyear))
+      if(i>=2) init$LL.p=runif(1, -2, 2)
+      if(i==3) {
+        init$dtype2.p=runif(1, -2, 2)
+        init$dtype3.p=runif(1, -2, 2)
+      }
+      init
+    }
+    
+    ##################################### run the occupancy models
+    
+    OccResults <- sapply(OccMods, function(OccMod){ 
+      # work out which Occmod we're using and make the necessary arrangments
+      # the name of the OccMod defines how it should be set up
+      #print(OccMod)
+      init=1
+      
+      # it also defines the name of the file ('SS' criterion is not used to determine which file is used)
+      OccModFile <- gsub('SS\\+', '', OccMod)
+      
+      if(OccMod=='Full') OccMod <- 'SS+LL+Site'
+      
+      # first figure out if we're doing the site selection
+      if(grepl('SS', OccMod)) { # Site Selection Criterion: restrict the data to sites represented 3 times
+        # identify the visits that are on sites wih three years data
+        # first determine the number of years per site
+        yps <- rowSums(acast(simdata, Site~Year, length, value.var='L')>0)
+        sites_to_include <- as.numeric(names(yps[yps>=nyr]))
+        zst <- zst[dimnames(zst)[[1]] %in% sites_to_include,]
+        i <- simdata$Site %in% sites_to_include
+        #i <-is.gridcell.wellsampled2(simdata) # same as three steps but doesn't help with zst
+      } else i <- TRUE # use all the rows
+      
+      # now assemble the bugs_data and related objects
+      #need to convert Site identities into row numbers
+      site_to_row_lookup <- data.frame(Site=as.integer(dimnames(zst)[[1]]),rownum=1:nrow(zst)) 
+      
+      bugs_data <- with(merge(simdata[i,], site_to_row_lookup), # adds rownum to simdata (used below)
+                        list(y=as.numeric(focal), Year=Year, Site=rownum, 
+                             nyear=nyear, nsite=nrow(zst), nvisit=nrow(simdata[i,]),
+                             sumX=sum(unique(Year)), sumX2=sum(unique(Year)^2)))
+      
+      if(grepl('LL', OccMod)) { # List length as a covariate
+        bugs_data$logL=log(simdata[i,]$L)
+        bugs_data$dtype2p_min = -10; bugs_data$dtype2p_max=10 #constraints on the priors
+        parameters <- c(parameters, 'LL.p')
+        init=2 # for defining which initial values are required
+      }  
+      
+      if(!grepl('Site', OccMod)) parameters <- setdiff(parameters, 'sigma2') # this variance term is only used in Site models
+      
+      if(grepl('Arco', OccMod)) { # Arco's model
+        bugs_data$DATATYPE2 = as.numeric(simdata$L %in% 2:3) # a short list
+        bugs_data$DATATYPE3 = as.numeric(simdata$L > 3) # 'full' list
+        bugs_data$dtype2p_min = -10; bugs_data$dtype2p_max=10 #constraints on the priors
+        bugs_data$dtype3p_min= -10; bugs_data$dtype3p_max=10 #constraints on the priors
+        parameters <- c(parameters, "pdet.d2","dtype2.p", "pdet.d3", "dtype3.p")
+        init=3
+      }
+      
+      # set the initial values
+      init.vals <- replicate(nc, initiate(z=zst, i=init), simplify=F)
+      
+      model_file <- paste0('Occupancy/Occ_',gsub('\\+','_',OccModFile),'.bugs')
+      
+      out <- jags(bugs_data, init.vals, parameters, model.file=model_file, 
+                  n.chains=nc, n.iter=ni, n.thin=nt, n.burnin=nb, DIC=TRUE)  
+      # try paralellising
+      #out <- jags.parallel(bugs_data, init.vals, parameters, model.file=model_file, 
+      #           n.chains=nc, n.iter=ni, n.thin=nt, n.burnin=nb, DIC=TRUE)      
+      
+      out$BUGSoutput$summary
+    }, USE.NAMES=T, simplify=F)
+    
+    ### Now get the results from each models into a format that matches the rest of the output  
+    names(OccResults) <- OccMods
+    
+    Occ_trends <- as.data.frame(t(sapply(
+      OccResults, function(x) x['regres.psi',c('mean','2.5%','97.5%','Rhat')])))
+    # convert to a effective p-value: just a 1 or 0 
+    names(Occ_trends)[1] <- 'trend'
+    Occ_trends$p <- as.numeric(0>apply(Occ_trends, 1, function(x) x['2.5%']*x['97.5%']))
+    Occ_trends$name <- rownames(Occ_trends)
+    Occ_trends <- melt(Occ_trends[,c(6,1,5,4)], id='name')
+    
+    Occ_out <- Occ_trends$value
+    names(Occ_out) <- with(Occ_trends, paste0('Occ+',name,'_', variable))
+    
+    output <- c(output, Occ_out)
+  } 
+  
+  
+  ########################################################################################
+  
+  
+  ######## Stupid method - a poisson regression of number of visits & sites
+  NRecMod <- summary(glm(num_visits_recorded ~ as.numeric(dimnames(num_visits_recorded)[[1]]), 'poisson'))$coef
+  output <- c(output, nRecords_trend=NRecMod[2,1], nRecords_p=NRecMod[2,4])
+  
+  num_sites_recorded <- with(subset(records, Species=='focal'), tapply(Site, Year, LenUniq))
+  NSmod <- summary(glm(num_sites_recorded ~ as.numeric(dimnames(num_sites_recorded)[[1]]), 'poisson'))$coef
+  output <- c(output, nSites_trend=NSmod[2,1], nSites_p=NSmod[2,4])
+  
+  #append summary info this to the output (doesn't work as attr when looping over multiple datasets
+  if (summarize) {
+    recording_summary <- summarize_recording(simdata, length(levels(records$Species))) # 0.03 seconds
+    
+    if (sum(Frescalo)>0){ # ~NB if(length(Frescalo) >1) then the following lines will only get info from the last run 
+      if (grepl("linux", R.version$platform)){
+        frst <- read.csv(file.path(find.package('sparta'), 'exec/Stats.csv'))
+        #frst <- read.csv("/prj/NEC04273/BSBI Redlisting/Master Code/Frescalo/Frescalo_V3/Stats.csv")			
+      }else{
+        frst <- read.csv(file.path(find.package('sparta'), 'exec/Stats.csv'))
+        #frst <- read.csv("P:/NEC04273_SpeciesDistribution/Workfiles/Range change sims/Frescalo/Frescalo files/Stats.csv")    
+      }
+      output <- c(output, Fr_Phi= attr(Tfac_Stdev, 'Phi'), Fr_MedianAlpha = median(frst$Alpha))
+    }            
+    
+    #get information on the prevelance of benchmark species
+    # NI 24/1/12
+    # The stats below are based on numbers of records
+    # In theory, it should be possible to extract the equivalent info from the Frescalo trend file
+    # I'll wait on this until Tom August has fixed the column names of the different versions
+    rps <- with(records, table(Species))
+    bench_thresh <- quantile(rps, 0.73)
+    pRecsBench <- sum(rps[rps >= bench_thresh])/sum(rps)
+    
+    output <- c(output, Recs_pBnchmk=pRecsBench, Recs_qFocal=mean(rps>rps[1]), recording_summary)
+  }
+  return(output)
+}
+
+
+iterate_all_scenarios <- function(nreps=1, nSites=1000, nSpecies=50, nYrs=10, pSVS=0.05, save_data=F, pFocal=list(Occ=0.5, DetP=0.5), vrs=F, mv=20, stoch=T,
+                                  p_short=list(init=0.6,final=0.9), pDetMod=0.2, decline=0, id='', combos=F, Scenarios='BCDF', 
+                                  inclMM=F, Frescalo=F, frescalo_path=NULL, Occ=Occ, nyr=nyr, writePath = getwd()) {
+  # this function is the wrapper for the standard procedure of generating data then analysing it and spitting the output
+  # TO DO: allow save data to be an integer defining the number of reps to be printed. e.g. the first 100 out of 1000
+  # As a workaround, I've added the 'inclMM' argument: if FALSE it bypasses the mixed model, which takes most time.
+  # 8 April: I separated the data generation from data analsysis
+  # Feb-March 2014: I added the arguments Occ and nyr
+  
+  x <- system.time(
+    output <- replicate(nreps, { # probeme when nreps>1. Hang on - is it when Frescalo=F?
+      # first generate the records
+      records <- generate_all_scenarios(nSites=nSites, nSpecies=nSpecies, nYrs=nYrs, pSVS=pSVS, save_data=save_data, 
+                                        pFocal=pFocal, p_short=p_short, pDetMod=pDetMod, decline=decline, id=id, 
+                                        combos=combos, Scenarios=Scenarios, mv=mv, vrs=vrs, stoch=stoch)
+      
+      # now analyse the data
+      sapply(records, run_all_methods, inclMM=inclMM, Frescalo=Frescalo, frescalo_path=frescalo_path, OccMods=Occ, nyr=nyr)
+    })
+  )
+  attr(output,"simpars") <- list(nreps=nreps,nSpecies=nSpecies,nSites=nSites,nYrs=nYrs,pSVS=pSVS,pFocal=pFocal,p_short=p_short,
+                                 pDetMod=pDetMod,decline=decline, visit_rich_sites=vrs, stochastic=stoch, max_vis=mv, nyr_SS=nyr)
+  attr(output,"combos") <- list(Scenarios=Scenarios, combos=combos, MM=inclMM, Frescalo=Frescalo)
+  attr(output, "id") <- id
+  attr(output, "elapsed_time") <- as.numeric(x[3])
+  dir.create(path = writePath, showWarnings = FALSE)
+  save(output, file=paste(writePath, '/SimOutput_',id,'_',dim(output)[3],'.rData', sep=''))
+  return(output)
+  gc()
+}
+
+
+#################################################################################################
+#model statistics 
 
 get_all_stats <- function(output, save_to_txt=T, sf=3, writePath = getwd()){
     # 1/5/13: minor changes so that parameters are read from attr(output, ...) rather than passed
@@ -220,79 +464,7 @@ get_summary_stats <- function(output, datecode=NULL, sf=3, save_to_txt=T){
 }
 
 
-incidental_records <- function(true_data, nYrs, nVisits, p_short, focal=F){
-  # generates incidental records for just one species; either the focal or sppSVS
-  # each year, generate a set of incidental records, all of the same species
-  # first we need a vector of sites in which the target species is found
-  # This doesn't work under test of power with nonfocal=T
-  
-  col <- 1+as.numeric(!focal) # column 1 for the focal, column 2 for sppSVS (the nonfocal)
-  sites <- which(true_data[,col]==1) # set of sites where the target species if found
-  
-  if(length(p_short)==1){
-    nInc <- p_short * nVisits # number of incidental records per year
-    recs <- replicate(nYrs, sample(as.numeric(sites), nInc, repl=T)) #as.numeric is helpful to avoid confusion
-    recs <- melt(recs)
-    names(recs) <- c('Visit','Year','Site')
-  } else {
-    increment <- diff(unlist(p_short)) / nYrs # which extra ones should be included in each year
-    nInc <- round((p_short$init + increment * 1:nYrs) * nVisits) # number of incidental records per year
-    recs <- lapply(1:nYrs, function(i) sample(sites, nInc[i], repl=T))
-    recs <- melt(recs)
-    names(recs) <- c('Site','Year')
-    recs$Visit <- melt(sapply(nInc, function(x) 1:x))$value
-  }
 
-  recs$Visit <- recs$Visit + nVisits # these are extra visits, over and above the normal
-  recs$Species <- ifelse(focal, 'focal', 'sppSVS')
-  return(recs[,c('Species','Visit','Site','Year')]) #structure matches main records, to which this appended
-  }
-
-
-iterate_all_scenarios <- function(nreps=1, nSites=1000, nSpecies=50, nYrs=10, pSVS=0.05, save_data=F, pFocal=list(Occ=0.5, DetP=0.5), vrs=F, mv=20, stoch=T,
-                                  p_short=list(init=0.6,final=0.9), pDetMod=0.2, decline=0, id='', combos=F, Scenarios='BCDF', 
-                                  inclMM=F, Frescalo=F, frescalo_path=NULL, Occ=Occ, nyr=nyr, writePath = getwd()) {
-    # this function is the wrapper for the standard procedure of generating data then analysing it and spitting the output
-    # TO DO: allow save data to be an integer defining the number of reps to be printed. e.g. the first 100 out of 1000
-    # As a workaround, I've added the 'inclMM' argument: if FALSE it bypasses the mixed model, which takes most time.
-    # 8 April: I separated the data generation from data analsysis
-    # Feb-March 2014: I added the arguments Occ and nyr
-    
-    x <- system.time(
-         output <- replicate(nreps, { # probeme when nreps>1. Hang on - is it when Frescalo=F?
-            # first generate the records
-            records <- generate_all_scenarios(nSites=nSites, nSpecies=nSpecies, nYrs=nYrs, pSVS=pSVS, save_data=save_data, 
-                                              pFocal=pFocal, p_short=p_short, pDetMod=pDetMod, decline=decline, id=id, 
-                                              combos=combos, Scenarios=Scenarios, mv=mv, vrs=vrs, stoch=stoch)
-
-            # now analyse the data
-            sapply(records, run_all_methods, inclMM=inclMM, Frescalo=Frescalo, frescalo_path=frescalo_path, OccMods=Occ, nyr=nyr)
-        })
-    )
-    attr(output,"simpars") <- list(nreps=nreps,nSpecies=nSpecies,nSites=nSites,nYrs=nYrs,pSVS=pSVS,pFocal=pFocal,p_short=p_short,
-                                   pDetMod=pDetMod,decline=decline, visit_rich_sites=vrs, stochastic=stoch, max_vis=mv, nyr_SS=nyr)
-    attr(output,"combos") <- list(Scenarios=Scenarios, combos=combos, MM=inclMM, Frescalo=Frescalo)
-    attr(output, "id") <- id
-    attr(output, "elapsed_time") <- as.numeric(x[3])
-    dir.create(path = writePath, showWarnings = FALSE)
-    save(output, file=paste(writePath, '/SimOutput_',id,'_',dim(output)[3],'.rData', sep=''))
-    return(output)
-    gc()
-}
-
-LenUniq <- function(x) length(unique(x)) #for calculating the list length from a list of species (allows duplicates, which are ignored)
-
-median_occ <- function(true_data){
-    # returns the column number of true_data corresponding to the species with the median distributions size (excluding the focal)
-    # there's no which.median() function to this effectively creates that functionality
-    x <- colSums(true_data)[-1]
-    #x[order(x)] #lists species in increasing order
-    name <- names(x[order(x)][ceiling(length(x)/2)])
-    return(1 + as.numeric(gsub('spp','',name))) # add 1 because of the focal species
-}
-
-
-one_to_two_tail <- function(p) ifelse(p<0.5, p*2, (1-p)*2)
 
 
 plot_error_rates <- function(output, error_rates, datecode){
@@ -508,446 +680,6 @@ recording_visit <- function(spp_vector, p_obs=0.5, S=1){
 resample <- function(x, ...) x[sample.int(length(x), ...)] # added 3/11 7 moved to separate function 5/2/13
 
 
-run_all_methods <- function(records, min_sq=5, summarize=T, nyr=3, inclMM=2, 
-                            OccMods=NULL, Frescalo=TRUE, frescalo_path=NULL){
-	# 3 November 2012: inclMM modified from a Boolean to the option of a number or vector of numbers, each of which specify the values of nsp for including
-	# 6 November: added a 'stupid' model based on simply the number of visits & sites
-	# 4 December: added 'pRecsBenchmark': the proportion of records made up by commonest 27%
-    #takes a simulated dataset and runs each method
-  # 13 September 2013: Added mixed effects version of List Length model
-	#18 February 2014: Added Occupancy 
-    # added threshold number of years into function definition
-  
-	######## two timeperiod models (0.01 seconds)
-	splityr <- mean(range(records$Year))
-	gridcell_counts <- Convert_records_to_2tp(records, splityr)	#get the number of sites in each time periods
-	prop.diff <- with(subset(gridcell_counts, n1>=min_sq & n2 >0), (n2-n1)/n1)
-	#plr <- rstandard(lm(log(n2) ~ log(n1), gridcell_counts, subset=gridcell_counts$n1 >= min_sq & gridcell_counts$n2 >0))
-	plr <- rstandard(lm(log(n2) ~ log(n1), gridcell_counts, subset=n1 >= min_sq & n2 >0))
-	Telfer <- fit_Telfer(gridcell_counts, min_sq)
-	
-  #we actually only want information from the focal species
-	output <- cbind(prop.diff, plr, Telfer)[1,]
-  
-  # Add Telfer p here for simplicity (no estimate of directionality)
-	output <- c(output, 
-              plr_p = as.numeric(one_to_two_tail(pnorm(plr[1]))),
-              Telfer_p = as.numeric(one_to_two_tail(pnorm(Telfer[1]))))
-	
-	# now fit the method of Maes et al 2012
-  Maes <- fit_Maes(records, splityr, min_sq, test=4)[1,] # just the first row (i.e. the focal species)
-  output <- c(output, Maes_trend=Maes$trend, Maes_p=Maes$pval)
-
-	# temporary measure
-  # rerun with the other version of the test (number of cells, not gridcellsum as denom)
-  Maes <- fit_Maes(records, splityr, min_sq, test=5)[1,] # just the first row (i.e. the focal species)
-	output <- c(output, Maes5_trend=Maes$trend, Maes5_p=Maes$pval)
-	  
-	attr(output, 'nSitesFocal') <- gridcell_counts[1,1:2]
-	
-  ######## DATA FRAME FOR visit-based analysis
-	simdata <- cast_recs(records, resolution='visit') # 0.02 seconds
-  
-  # for later: which are on well-sampled sites (3 years data)
-	i <- is.gridcell.wellsampled2(simdata, n=nyr)
-	
-	######## WHICH SITES HAS THE FOCAL SPECIES EVER BEEN RECORDED ON? (added 1/5/13)
-	focalsites <- unique(subset(records, Species=='focal')$Site)
-        
-	######## List Length (0.01 seconds)
-	# 4/2/13: looking for an occasional bug
-	x <- try(
-	  LL_model <- summary(glm(focal ~ Year + log2(L), binomial, data=simdata, subset = L>0))$coef
-	  , silent=T)
-	if(class(x)=='try-error'){
-	  save(records, file='LL1_try_error.rData')
-	  output <- c(output, LLsimple_trend=NA, LLsimple_p=NA)
-	} else {
-	  output <- c(output, LLsimple_trend=LL_model[2,1], LLsimple_p=LL_model[2,4])
-	}
-  ## a second version of the List Length in which only sites where the focal has been EVER recorded
-	# added 1/5/13
-	x <- try(
-	  LL_model2 <- summary(glm(focal ~ Year + log2(L), binomial, data=simdata, 
-	                           subset = L>0 & Site %in% focalsites))$coef
-	  , silent=T)
-	if(class(x)=='try-error'){
-	  save(records, file='LLfs_try_error.rData')
-	  output <- c(output, LLfs_trend=NA, LLfs_p=NA)
-	} else {
-	  output <- c(output, LLfs_trend=LL_model2[2,1], LLfs_p=LL_model2[2,4])
-	}
-	# end bug check
-  
-  ### 13/9/13: LL model with random effect
-  #simdata$cYr <- simdata$Year - median(unique(simdata$Year))
-  #x <- try(
-	#  LL_mm <- summary(glmer(focal ~ cYr + log2(L) + (1|Site), binomial, data=simdata, subset = L>0))
-	#  , silent=T)
-	#if(class(x)=='try-error'){
-  #  save(records, file='LLMM_try_error.rData')
-  #  coef <- rep(NA,4)
-  #  output <- c(output, LLmm_trend=NA, LLmm_p=NA)
-	#} else {
-	#  coef <- as.numeric(coef(LL_mm)[2,]) # should be compatible with old and new versions of lme4
-	#  output <- c(output, LLmm_trend=coef[1], LLmm_p=coef[4])
-	#}
-	# end bug check
-
-  
-	### 18/2/14: LL model with random effect & site selection
-	simdata$cYr <- simdata$Year - median(unique(simdata$Year))
-	x <- try(
-	  LL_mm_SS <- summary(glmer(focal ~ cYr + log2(L) + (1|Site), binomial, data=simdata, subset = i & L>0))
-	  , silent=T)
-	if(class(x)=='try-error'){
-	  save(records, file='LLMMSS_try_error.rData')
-	  coef <- rep(NA,4)
-	  output <- c(output, LLmm_trend=NA, LLmm_p=NA)
-	} else {
-	  coef <- as.numeric(coef(LL_mm_SS)[2,]) # should be compatible with old and new versions of lme4
-	  output <- c(output, LLmmSS_trend=coef[1], LLmmSS_p=coef[4])
-	}
-	# end bug check
-	
-	### 4/3/14: the other two "2 component models"
-	x <- try(
-	  LL_SS <- summary(glm(focal ~ cYr + log2(L), binomial, data=simdata, subset = i & L>0))
-	  , silent=T)
-	if(class(x)=='try-error'){
-	  save(records, file='LLSS_try_error.rData')
-	  coef <- rep(NA,4)
-	  output <- c(output, LLSS_trend=NA, LLSS_p=NA)
-	} else {
-	  coef <- as.numeric(coef(LL_SS)[2,]) # should be compatible with old and new versions of lme4
-	  output <- c(output, LLSS_trend=coef[1], LLSS_p=coef[4])
-	}
-  
-	x <- try(
-	  mm_SS <- summary(glmer(focal ~ cYr + (1|Site), binomial, data=simdata, subset = i & L>0))
-	  , silent=T)
-	if(class(x)=='try-error'){
-	  save(records, file='MMSS_try_error.rData')
-	  coef <- rep(NA,4)
-	  output <- c(output, mmSS_trend=NA, mmSS_p=NA)
-	} else {
-	  coef <- as.numeric(coef(mm_SS)[2,]) # should be compatible with old and new versions of lme4
-	  output <- c(output, mmSS_trend=coef[1], mmSS_p=coef[4])
-	}
-	
-  
-	####################################################### REPORTING RATE
-  ######## Ball method 
-	# modified 1/5/13 to include multiple versions of this method
-    
-    # first, the simple version (as used previously)
-	num_visits_recorded <- with(simdata, tapply(focal, Year, sum))
-	num_visits_that_year <- with(simdata, tapply(Site, Year, length))
-	failures <- num_visits_that_year - num_visits_recorded#[,2] #col 2 is focal species (col 1 is year)
-	Year <-unique(simdata$Year)
-		
-	x <- try(# 4/2/13: looking for an occasional bug
-	  Ball_model <- summary(glm(cbind(num_visits_recorded,failures) ~ Year, family=binomial))$coef
-	  , silent=T)
-	if(class(x)=='try-error'){
-	  save(records, file='try_error.rData')
-	  output <- c(output, VRsimple_trend=NA, VRsimple_p=NA)    
-	} else {
-	  output <- c(output, VRsimple_trend=Ball_model[2,1], VRsimple_p=Ball_model[2,4])    
-	}      
-    
-    # Note that in the hoverfly atlas, Ball fits the logit(proportion), with number of hectads & visits as covariates
-    # the binomial version of this model should render these covariates unnecessary
-    # he also includes number of unique recorders
-    
-    # Next, we use a version in which only sites where the focal was ever recorded
-    # this is a filter discussed by Stuart Ball but not described in the hoverfly atlas
-    # Ball calls these visits 'suitable', although they would be defined at a coarser resolution than used here.
-    #num_visits_recorded <- aggregate(simdata$focal, by=list(simdata$Year), FUN=sum)
-	num_visits_recorded <- with(subset(simdata, Site %in% focalsites), tapply(focal, Year, sum))
-	num_visits_that_year <- with(subset(simdata, Site %in% focalsites), tapply(Site, Year, length))
-	failures <- num_visits_that_year - num_visits_recorded#[,2] #col 2 is focal species (col 1 is year)
-	YearFS <-unique(subset(simdata, Site %in% focalsites)$Year) # modified 9/5 to catch years when no focal sites are visited
-    
-	x <- try(# 4/2/13: looking for an occasional bug
-	  Ball_model <- summary(glm(cbind(num_visits_recorded,failures) ~ YearFS, family=binomial))$coef
-	  , silent=T)
-	if(class(x)=='try-error'){
-	  save(records, file='VR_try_error.rData')
-	  output <- c(output, VRfs_trend=NA, VRfs_p=NA)
-	} else {
-	  output <- c(output, VRfs_trend=Ball_model[2,1], VRfs_p=Ball_model[2,4])
-	}
-
-    # Next, we'll use the version in the hoverfly atlas
-    # this is a logistic regression with covariates. 
-    # Stuart Ball told me (8/5/13) that he did this just because it was easier to explain
-    # but it's not clear to me whether we should restrict the data to Years when focal sites were visited
-    #nRecsFocal <- with(subset(records, Species=='focal'), tapply(Species,Year,length))
-    #recs_temp <- subset(records, Year %in% YearFS)
-    #nRecsTotal <- with(recs_temp, table(Year))
-	  #n_Sites <- with(recs_temp, tapply(Site, Year, LenUniq))
-	  #n_Vis <- with(recs_temp, tapply(Visit, Year, LenUniq))
-
-    # 14/5/13: there's an occasional problem here
-    # in some datasets, there are zero focal records for a particular year
-    # this means that the lengths of the vectors are different
-	  #if(length(nRecsFocal) < length(nRecsTotal)){
-	 #   nRecsFocal <- nRecsFocal[match(dimnames(nRecsTotal)[[1]], dimnames(nRecsFocal)[[1]])]
-	 #   nRecsFocal[is.na(nRecsFocal)] <- 0.01 # a fudge to prevent NA/-Inf in the logit
-	 #   }
-    
-    #x <- try({
-     #   pF <- nRecsFocal/nRecsTotal
-	   # logit_pF <- log(pF/(1-pF))
-    #    Ball_model <- summary(lm(logit_pF ~ YearFS + n_Vis + n_Sites))$coef
-	  #   }, silent=T)
-    #if(class(x)=='try-error') save(records, file='VRhov_try_error.rData')
-
-    #output <- c(output, VRhov_trend=Ball_model[2,1], VRhov_p=Ball_model[2,4])    
-	
-    # Finally, a version with site selection
-	  num_visits_recorded <- with(simdata[i,], tapply(focal, Year, sum))
-	  num_visits_that_year <- with(simdata[i,], tapply(Site, Year, length))
-	  failures <- num_visits_that_year - num_visits_recorded#[,2] #col 2 is focal species (col 1 is year)
-	  Year <-unique(simdata[i,]$Year)
-	
-  	x <- try(# 4/2/13: looking for an occasional bug
-  	  RRSS <- summary(glm(cbind(num_visits_recorded,failures) ~ Year, family=binomial))$coef
-  	  , silent=T)
-  	if(class(x)=='try-error'){
-  	  save(records, file='RRSS_try_error.rData')
-  	  output <- c(output, RR_SS_trend=NA, RR_SS_p=NA)    
-  	} else {
-  	  output <- c(output, RR_SS_trend=RRSS[2,1], RR_SS_p=RRSS[2,4])    
-  	}
-	
-  
-	  ####################################################### MIXED MODEL (WSS)
-    ######## Mixed model: 0.16 seconds to cast the data, 0.3 to fit the model
-	
-    # 21 June: add the MM without any kind of threshold
-    # this makes it the same as Visit Rate but with a site effect
-    # we're actually including it in order to verify that Occupancy will be ok under B3f
-    MM <- fit_ladybirdMM_bin(simdata, nsp=1, nyr=1)[c(1,4,5)]
-	  names(MM) <- c('trend', 'p', 'pCombosUsed')
-	  names(MM) <- paste('MMbin0_', names(MM), sep='')
-	  output <- c(output, MM) #     
-    
-    #MMdata <- cast_recs(records, resolution='kmyr')
-	#i <- MMdata$L >= 2
-	#i[i==T] <- is.gridcell.wellsampled(MMdata$Site[i], n=3)
-	#MM <- glmer(focal ~ Year + (1|Site), MMdata, subset=i, family=binomial)
-	#MM <- as.numeric(summary(MM)@coefs[2,]) # keep this a two step process in case we later decide to extract other info
-	#output <- c(output, MM_trend=MM[1], MM_p=MM[4], MM_pCombosUsed=sum(i)/length(i)) # M_pVisitsUsed added: 16 October
-	if(sum(inclMM) > 0){ # option to bypass fitting the mixed model, e.g. if set to F
-	    MMdata <- cast_recs(records, resolution='kmyr')
-	    for (i in inclMM) {
-		    # the standard MM, as year-monad (ym) resolution
-            MM <- fit_LadybirdMM(MMdata, nsp=i, nyr=nyr)[c(1,4,5)]
-			names(MM) <- c('trend', 'p', 'pCombosUsed')
-			names(MM) <- paste('MMber', i,'sp_', names(MM), sep='')
-			output <- c(output, MM) #
-            
-            # repeat using disaggregated (visit) data (Added 24/1/13)
-            # NB Currently the nyr parameter actually filters on the number of visits, not unique years
-            #MM <- fit_LadybirdMM(simdata, nsp=i, nyr=3)[c(1,4,5)]
-            #names(MM) <- c('trend', 'p', 'pCombosUsed')
-            #names(MM) <- paste('MMv', i,'sp_', names(MM), sep='')
-            #output <- c(output, MM) #    
-            
-            # instead of disaggregated visit data, use the Binomial model
-            # it should be identical to the MMv model, but with greater numerical stability & quicker
-            # it's more robust than the bernoulli version above (previously MMym)
-            MM <- fit_ladybirdMM_bin(simdata, nsp=i, nyr=nyr)[c(1,4,5)]
-            names(MM) <- c('trend', 'p', 'pCombosUsed')
-            names(MM) <- paste('MMbin', i,'sp_', names(MM), sep='')
-            output <- c(output, MM) #    
-	}}
-
-	######################################################################################## FRESCALO
-  #Frescalo (by Tom August & Colin Harrower)
-	if (sum(Frescalo)>0){
-	 # Set directory where Frescalo is located
-	 # Set path to Frescalo and output folder, which is platform dependent 
-	 if (is.null(frescalo_path)){
-     frescalo_path <- paste(find.package('sparta'),'/exec/Frescalo_3a.exe',sep='')
-     # Look for weights file and if it is not their copy it
-     sparta_dir <- paste(find.package('sparta'),'/exec',sep='')
-     if(!file.exists(file.path(sparta_dir,'simWts.txt'))){
-       wts_copy <- file.copy('simWts.txt',sparta_dir)
-       if(!wts_copy) stop('Weights file did not copy correctly')
-     }
-	 }
-
-	 output_dir <- getwd()
-	 
-	 
-	 for (i in Frescalo) {
-    #i=1: 1 year per time period
-    #i=2: 2 time periods (splitting years in two)
-	  Tfac_Stdev <- sims_to_frescalo(records, output_dir=output_dir, frescalo_path=frescalo_path, tp2=as.logical(i-1))
-    #get p-value & trend from TimeFactors
-	  #frescalo_summ <- frescalo_bootstrap(Tfac_Stdev) #bootstrapping nearly ALWAYS returns a significant p-value
-	  frescalo_summ <- frescalo_trend(Tfac_Stdev)
-	  names(frescalo_summ) <- c('trend','p')
-	  names(frescalo_summ) <- paste('Frescalo', i, 'tp_', names(frescalo_summ), sep='')
-      output <- c(output, frescalo_summ) 
-	}}
-  
-    
-  ######################################################################################## OCCUPANCY
-	# Added February 2014 by NJBI, based on code originally written by Arco & Marnix
-
-  if(!is.null(OccMods)){
-	  require(R2jags)
-	
-  ######################################## Setup BUGS data
-	
-	ni<-5000; nb<-2500; nt<-3; nc<-3 # as Marnix
-	
-	# need to get a measure of whether the species was on that site in that year, unequivocally, in zst
-	#it should have dims=c(nsite, nyear)
-	zst <- acast(simdata, Site~factor(Year), value.var='focal', max, fill=0) # initial values for the latent state = observed state
-	nyear <- LenUniq(simdata$Year) 
-	
-  # what are we going to monitor
-	parameters <- c("fit", "fit.new", "psi.fs", "regres.psi","regres.pdet", "sigma2","sd.lp", "mu.lp", "tau.lp", "pdet.alpha")
-		
-	##################################### function
-	
-	initiate <- function(z, i=1) {
-	  init <- list (z=z,  alpha.p=rep(runif(1, -2, 2), nyear))
-	  if(i>=2) init$LL.p=runif(1, -2, 2)
-	  if(i==3) {
-	    init$dtype2.p=runif(1, -2, 2)
-	    init$dtype3.p=runif(1, -2, 2)
-	  }
-	  init
-	}
-	##################################### run the occupancy models
-  
-  OccResults <- sapply(OccMods, function(OccMod){ 
-	  # work out which Occmod we're using and make the necessary arrangments
-	  # the name of the OccMod defines how it should be set up
-	  #print(OccMod)
-	  init=1
-    
-	  # it also defines the name of the file ('SS' criterion is not used to determine which file is used)
-	  OccModFile <- gsub('SS\\+', '', OccMod)
-    
-    if(OccMod=='Full') OccMod <- 'SS+LL+Site'
-	  
-	  # first figure out if we're doing the site selection
-	  if(grepl('SS', OccMod)) { # Site Selection Criterion: restrict the data to sites represented 3 times
-	    # identify the visits that are on sites wih three years data
-	    # first determine the number of years per site
-	    yps <- rowSums(acast(simdata, Site~Year, length, value.var='L')>0)
-	    sites_to_include <- as.numeric(names(yps[yps>=nyr]))
-	    zst <- zst[dimnames(zst)[[1]] %in% sites_to_include,]
-	    i <- simdata$Site %in% sites_to_include
-	    #i <-is.gridcell.wellsampled2(simdata) # same as three steps but doesn't help with zst
-	  } else i <- TRUE # use all the rows
-	  
-	  # now assemble the bugs_data and related objects
-	  #need to convert Site identities into row numbers
-	  site_to_row_lookup <- data.frame(Site=as.integer(dimnames(zst)[[1]]),rownum=1:nrow(zst)) 
-	  
-	  bugs_data <- with(merge(simdata[i,], site_to_row_lookup), # adds rownum to simdata (used below)
-	                    list(y=as.numeric(focal), Year=Year, Site=rownum, 
-	                         nyear=nyear, nsite=nrow(zst), nvisit=nrow(simdata[i,]),
-	                         sumX=sum(unique(Year)), sumX2=sum(unique(Year)^2)))
-	  
-	  if(grepl('LL', OccMod)) { # List length as a covariate
-	    bugs_data$logL=log(simdata[i,]$L)
-	    bugs_data$dtype2p_min = -10; bugs_data$dtype2p_max=10 #constraints on the priors
-	    parameters <- c(parameters, 'LL.p')
-	    init=2 # for defining which initial values are required
-	  }  
-
-	  if(!grepl('Site', OccMod)) parameters <- setdiff(parameters, 'sigma2') # this variance term is only used in Site models
-    
-	  if(grepl('Arco', OccMod)) { # Arco's model
-	    bugs_data$DATATYPE2 = as.numeric(simdata$L %in% 2:3) # a short list
-	    bugs_data$DATATYPE3 = as.numeric(simdata$L > 3) # 'full' list
-	    bugs_data$dtype2p_min = -10; bugs_data$dtype2p_max=10 #constraints on the priors
-	    bugs_data$dtype3p_min= -10; bugs_data$dtype3p_max=10 #constraints on the priors
-	    parameters <- c(parameters, "pdet.d2","dtype2.p", "pdet.d3", "dtype3.p")
-	    init=3
-	  }
-	  
-
-	  # set the initial values
-	  init.vals <- replicate(nc, initiate(z=zst, i=init), simplify=F)
-	  
-    model_file <- paste0('Occupancy/Occ_',gsub('\\+','_',OccModFile),'.bugs')
-    
-	  out <- jags(bugs_data, init.vals, parameters, model.file=model_file, 
-	             n.chains=nc, n.iter=ni, n.thin=nt, n.burnin=nb, DIC=TRUE)  
-    # try paralellising
-	  #out <- jags.parallel(bugs_data, init.vals, parameters, model.file=model_file, 
-	   #           n.chains=nc, n.iter=ni, n.thin=nt, n.burnin=nb, DIC=TRUE)      
-	  
-    out$BUGSoutput$summary
-	}, USE.NAMES=T, simplify=F)
-
-  ### Now get the results from each models into a format that matches the rest of the output  
-  names(OccResults) <- OccMods
-
-  Occ_trends <- as.data.frame(t(sapply(
-    OccResults, function(x) x['regres.psi',c('mean','2.5%','97.5%','Rhat')])))
-  # convert to a effective p-value: just a 1 or 0 
-  names(Occ_trends)[1] <- 'trend'
-  Occ_trends$p <- as.numeric(0>apply(Occ_trends, 1, function(x) x['2.5%']*x['97.5%']))
-  Occ_trends$name <- rownames(Occ_trends)
-  Occ_trends <- melt(Occ_trends[,c(6,1,5,4)], id='name')
-  
-  Occ_out <- Occ_trends$value
-  names(Occ_out) <- with(Occ_trends, paste0('Occ+',name,'_', variable))
-  
-  output <- c(output, Occ_out)
-  } # end of Occupancy models
-
-  
-  ########################################################################################
-  
-
-	######## Stupid method - a poisson regression of number of visits & sites
-	NRecMod <- summary(glm(num_visits_recorded ~ as.numeric(dimnames(num_visits_recorded)[[1]]), 'poisson'))$coef
-	output <- c(output, nRecords_trend=NRecMod[2,1], nRecords_p=NRecMod[2,4])
-	
-	num_sites_recorded <- with(subset(records, Species=='focal'), tapply(Site, Year, LenUniq))
-	NSmod <- summary(glm(num_sites_recorded ~ as.numeric(dimnames(num_sites_recorded)[[1]]), 'poisson'))$coef
-	output <- c(output, nSites_trend=NSmod[2,1], nSites_p=NSmod[2,4])
-	
-	#append summary info this to the output (doesn't work as attr when looping over multiple datasets
-	if (summarize) {
-        recording_summary <- summarize_recording(simdata, length(levels(records$Species))) # 0.03 seconds
-       
-        if (sum(Frescalo)>0){ # ~NB if(length(Frescalo) >1) then the following lines will only get info from the last run 
-            if (grepl("linux", R.version$platform)){
-              frst <- read.csv(file.path(find.package('sparta'), 'exec/Stats.csv'))
-              #frst <- read.csv("/prj/NEC04273/BSBI Redlisting/Master Code/Frescalo/Frescalo_V3/Stats.csv")			
-			}else{
-			    frst <- read.csv(file.path(find.package('sparta'), 'exec/Stats.csv'))
-			    #frst <- read.csv("P:/NEC04273_SpeciesDistribution/Workfiles/Range change sims/Frescalo/Frescalo files/Stats.csv")    
-			}
-        output <- c(output, Fr_Phi= attr(Tfac_Stdev, 'Phi'), Fr_MedianAlpha = median(frst$Alpha))
-		}            
-        
-        #get information on the prevelance of benchmark species
-        # NI 24/1/12
-        # The stats below are based on numbers of records
-        # In theory, it should be possible to extract the equivalent info from the Frescalo trend file
-        # I'll wait on this until Tom August has fixed the column names of the different versions
-        rps <- with(records, table(Species))
-        bench_thresh <- quantile(rps, 0.73)
-        pRecsBench <- sum(rps[rps >= bench_thresh])/sum(rps)
-                
-        output <- c(output, Recs_pBnchmk=pRecsBench, Recs_qFocal=mean(rps>rps[1]), recording_summary)
-	}
-    return(output)
-}
 
 
 sims_to_frescalo <- function (records,output_dir,frescalo_path,tp2=FALSE){
@@ -1159,18 +891,25 @@ targetLL <- function(p_short, ratio=c(4,2,1.5)) {
 	}
 	
 
-visit_site_Ntimes <- function(i, times, true_data){
-    # 24 April: new wrapper for recording_visit
-    replicate(times, recording_visit(true_data[i,], p_obs=attr(true_data, "p_detect")))
-}
 
-visit_these_sites <- function(sites_visited, true_data){
-	# takes a vector of sites to be visited and the set of actual observations
-	# 3 December: I added the 'pr' argument to allow different detection probabilities among species 
-	sapply(sites_visited, function(i) recording_visit(true_data[i,], p_obs=attr(true_data, "p_detect")))
-}
 
-#end
+
+#############################################################################
+#scenario functions
+
+bias_focal <- function(records, disadvantage=0.5){
+  # a clever way to simulate bias *against* is to delete records from 'well-sampled' set by stratified random sampling
+  # disadvantage defines the proportion of lists where the focal species should be 'unrecorded'
+  # If a single number then it's constant across years.
+  # if numeric, this remains constant over time. If two numbers, the second number identifies the FINAL value
+  increment <- ifelse(length(disadvantage)==1, 0, diff(disadvantage) / max(records$Year)) # which extra ones should be included in each year
+  records$record_id <- 1:nrow(records)
+  focal <- subset(records, subset=Species=='focal')
+  p_lost <- disadvantage[1] + increment * focal$Year # probability of being 'lost' (un-recorded) is a function of year and disadvantage
+  lost <- rbinom(n=nrow(focal), size=1, prob=p_lost) # a vector of zero & 1s indicating  
+  record_id_to_lose <- focal$record_id[lost==1]
+  return(records[-record_id_to_lose,]) # 
+}
 
 #####ARE THE BELOW USED???##############################################################
 fit_LadybirdMM <- function(MMdata, nsp=2, nyr=3){ #0.44 seconds
@@ -1566,4 +1305,32 @@ is.gridcell.wellsampled2 <- function(data, n=3){
   num_yrs_visits  <- rowSums(x>0) # convert nVisits to binary and sum across years 
   sites_to_include <- num_yrs_visits >= n  
   return(data$Site %in% dimnames(x)[[1]][sites_to_include])
+}
+
+incidental_records <- function(true_data, nYrs, nVisits, p_short, focal=F){
+  # generates incidental records for just one species; either the focal or sppSVS
+  # each year, generate a set of incidental records, all of the same species
+  # first we need a vector of sites in which the target species is found
+  # This doesn't work under test of power with nonfocal=T
+  
+  col <- 1+as.numeric(!focal) # column 1 for the focal, column 2 for sppSVS (the nonfocal)
+  sites <- which(true_data[,col]==1) # set of sites where the target species if found
+  
+  if(length(p_short)==1){
+    nInc <- p_short * nVisits # number of incidental records per year
+    recs <- replicate(nYrs, sample(as.numeric(sites), nInc, repl=T)) #as.numeric is helpful to avoid confusion
+    recs <- melt(recs)
+    names(recs) <- c('Visit','Year','Site')
+  } else {
+    increment <- diff(unlist(p_short)) / nYrs # which extra ones should be included in each year
+    nInc <- round((p_short$init + increment * 1:nYrs) * nVisits) # number of incidental records per year
+    recs <- lapply(1:nYrs, function(i) sample(sites, nInc[i], repl=T))
+    recs <- melt(recs)
+    names(recs) <- c('Site','Year')
+    recs$Visit <- melt(sapply(nInc, function(x) 1:x))$value
+  }
+  
+  recs$Visit <- recs$Visit + nVisits # these are extra visits, over and above the normal
+  recs$Species <- ifelse(focal, 'focal', 'sppSVS')
+  return(recs[,c('Species','Visit','Site','Year')]) #structure matches main records, to which this appended
 }
