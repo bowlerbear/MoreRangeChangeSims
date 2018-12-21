@@ -1,20 +1,6 @@
 generate_records <- function(nYrs=10, true_data, decline=0, which.decline=1, sites_to_use=c(1,0), 
                              pSVS=0.07, mv=20, vrs=F, stoch=T, nSites = 1000, drop = FALSE) {
   
-  # wrapper for recording_cycle(), allowing it to be run over many years
-  # sites_to_use was intended to be the way I implemented scenario B1, but no longer necessary
-  # 25 October: added 'decline' for testing power
-  # nVisits is allowed to vary among years. If one value is supplied, the visit rate remains constant
-  # If two values are supplied then the first value is the initial rate, and the second value is the annual increment
-  # 4/2/13: I modified this to allow a species other than the focal to be in decline (which.decline). Default=1 (focal)
-  # 5/2/13: Further modification to allow two species to decline simultaneously
-  # 6/2/13: Additional statement to allow a variable number of declining species
-  #       if which.decline < 1 then it specifies a proportion of species to select at random
-  #       otherwise, which.decline specifies the identities of the species to decline
-  #       Under scenario F, decline must be supplied as a vector of length 2
-  #       The first element specifies the decline rate of the focal species, the second selected nonfocals
-  # 24/4/13: modified so that nVisits is replaced by pSVS, the proportion of sites receiving a single visit
-  
   if(length(pSVS)==1) pSVS <- c(pSVS[1], 0)
   
   zeroDecline <- function(i){
