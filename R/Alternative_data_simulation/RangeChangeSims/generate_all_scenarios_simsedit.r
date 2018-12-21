@@ -1,14 +1,5 @@
 generate_all_scenarios <- function(nSites=1000, nSpecies=25, nYrs=10, pSVS=0.07, mv=10, vrs=F, stoch=T, Scenarios='BCDF', combos=F,
                                    save_data=F, id='', pFocal=list(Occ=0.5, DetP=0.5),p_short=list(init=0.6,final=0.9), pDetMod=0.2, decline=0, drop = FALSE){
-  # This is a wrapper for creating data
-  # 25 October: added 'decline' for testing power
-  #  3 December: removed B1 & replaced E
-  # 25 January 2013: I added B3: new sites are biased toward the focal species
-  #  4 February: added F: decline in a nonfocal species
-  #  7 February: added the option of user-controlled subset of scenarios
-  # 13 February: I added the optional argument pFocal to allow exploration of changing it from outside
-  # 14 February: I dropped D1 and F1
-  # 8 April: removed B3n
   
   # the actual data   
   true_data <- create_data(nSites=nSites, nSpecies=nSpecies, pFocal=pFocal)
