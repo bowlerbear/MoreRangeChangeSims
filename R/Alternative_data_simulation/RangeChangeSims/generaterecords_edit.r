@@ -1,10 +1,13 @@
 generate_records <- function(nYrs=10, true_data, decline=0, which.decline=1, sites_to_use=c(1,0), 
                              pSVS=0.07, mv=20, vrs=F, stoch=T, nSites = 1000, drop = FALSE) {
   
+  
+  #get proportion of single visit sites
   if(length(pSVS)==1) pSVS <- c(pSVS[1], 0)
   
   zeroDecline <- function(i){
-    records <- recording_cycle(pSVS=pSVS[1]+i*pSVS[2], true_data=true_data, max_vis=mv, VisRichSites=vrs, stochastic=stoch)
+    records <- recording_cycle(pSVS=pSVS[1]+i*pSVS[2], true_data=true_data,
+                               max_vis=mv, VisRichSites=vrs, stochastic=stoch)
     records$Year <- i
     return(records)
   }
@@ -69,7 +72,6 @@ generate_records <- function(nYrs=10, true_data, decline=0, which.decline=1, sit
     #records <- do.call(rbind, records)
     #}
     
-    
     for(i in 2:nYrs) {  #can start loop at zero
       for(j in 1:length(which.decline)){
         occ <- which(true_data[,which.decline[j]]==1) #site numbers where focal is present
@@ -87,7 +89,6 @@ generate_records <- function(nYrs=10, true_data, decline=0, which.decline=1, sit
   # replace melt with rbind 08/05/2014 TA&GP
   # records <- melt(records, id.vars=1:3) #simply appends the two list elements into a simple 
   # names(records)[4] <- 'Year'
-  
   
   
   if(drop == TRUE){

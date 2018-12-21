@@ -6,10 +6,10 @@
 rm(list = ls())
 
 # set working directory to where paper functions etc saved
-scripts_dir<- ('C:/Users/charl/Dropbox/Other Work/sMon Workshop Dec 2018/MoreRangeChangeSims/R/Alternative_data_simulation/RangeChangeSims')
+scripts_dir<- ('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/Alternative_data_simulation/RangeChangeSims')
 
 # output directory
-output_dir <- 'C:/Users/charl/Dropbox/Other Work/sMon Workshop Dec 2018/Scenario_data'
+output_dir <- 'C:/Users/db40fysa/Nextcloud/sMon-Analyses/Scenario_data'
 
 # set desired criteria
 rec_int <- "Low"  # set the recording intensity (see values below)
@@ -19,18 +19,17 @@ decline <- 0.5    # set a decline for the focal species
 scenario <- paste(rec_int, "_", decline, sep = "")
 
 # create a directory to save these datasets in for this scenario
-dir.create(paste(output_dir, "/", scenario, sep = ""))
+dir.create(paste(output_dir, scenario, sep = "/"))
 
 # name this directory
 dataset_dir <- paste(output_dir, "/", scenario, sep = "")
-
 
 # set additional parameters
 drop <- FALSE  # This parameter determines where there should be a sudden drop in species occupancy 
                # (rather than a gradual decline), this was for used to test the model
 
 # These set the parameter that determines the recording intensity
-# how these values are derived in described in Nick's sims paper (based on UK datasets)
+# how these values are derived is described in Nick's sims paper (based on UK datasets)
 if(rec_int == "Medium") pSVS <- 0.07
 if(rec_int == "Low") pSVS <- 0.05
 if(rec_int == "Super_Low") pSVS <- 0.01
@@ -40,6 +39,13 @@ if(rec_int == "Super_Low") pSVS <- 0.01
 nspecies <- 25
 nsites <- 1000
 nyears <- 40
+
+
+#define occurence probability
+Occ = 0.2 
+
+#define detection probability
+DetP = 0.5
 
 
 n <- 5 # number of datasets required
@@ -64,8 +70,10 @@ for(i in 1:n){
   # UK ant data which I was comparing things to in my model testing paper
   
   recs <- generate_all_scenarios(nSites = nsites, nSpecies = nspecies,
-                                 pFocal = list(Occ = 0.2, DetP = 0.2), nYrs = nyears, pSVS = pSVS,
-                                 mv = 10, Scenarios = "A", p_short = list(init = 0.6, final = 0.9),
+                                 pFocal = list(Occ = Occ, DetP = DetP), 
+                                 nYrs = nyears, pSVS = pSVS,
+                                 mv = 10, Scenarios = "A", 
+                                 p_short = list(init = 0.6, final = 0.9),
                                  pDetMod = 0.2, decline = decline, drop = drop)
   
   save(recs, file = paste(dataset_dir, "/", rec_int, "int_records_", decline, "_", i, ".rdata", sep = ""))

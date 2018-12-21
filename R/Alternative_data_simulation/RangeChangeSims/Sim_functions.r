@@ -14,13 +14,10 @@ require(lme4)
 occurrence <- function(x) length(x) > 0 
 
 visit_site_Ntimes <- function(i, times, true_data){
-  # 24 April: new wrapper for recording_visit
   replicate(times, recording_visit(true_data[i,], p_obs=attr(true_data, "p_detect")))
 }
 
 visit_these_sites <- function(sites_visited, true_data){
-  # takes a vector of sites to be visited and the set of actual observations
-  # 3 December: I added the 'pr' argument to allow different detection probabilities among species 
   sapply(sites_visited, function(i) recording_visit(true_data[i,], p_obs=attr(true_data, "p_detect")))
 }
 
@@ -108,16 +105,13 @@ cast_recs <- function(records, resolution='visit', focalspname='focal'){
   return(castrecs)
 }
 
-
-
 #################################################################################################
 
 #run analysis
 
 #takes a simulated dataset and runs each method
 
-run_all_methods <- function(records, min_sq=5, summarize=T, nyr=3, inclMM=2, 
-                            OccMods=NULL, Frescalo=TRUE, frescalo_path=NULL){
+run_all_methods <- function(records, min_sq=5, summarize=T, nyr=3){
   
   ######## DATA FRAME FOR visit-based analysis
   simdata <- cast_recs(records, resolution='visit') # 0.02 seconds
@@ -125,37 +119,11 @@ run_all_methods <- function(records, min_sq=5, summarize=T, nyr=3, inclMM=2,
   # for later: which are on well-sampled sites (3 years data)
   i <- is.gridcell.wellsampled2(simdata, n=nyr)
   
-  ######## WHICH SITES HAS THE FOCAL SPECIES EVER BEEN RECORDED ON? (added 1/5/13)
+  ######## WHICH SITES HAS THE FOCAL SPECIES EVER BEEN RECORDED ON? 
   focalsites <- unique(subset(records, Species=='focal')$Site)
   
-  ######## List Length (0.01 seconds)
-  x <- try(
-    LL_model <- summary(glm(focal ~ Year + log2(L), binomial, data=simdata, subset = L>0))$coef
-    , silent=T)
-  if(class(x)=='try-error'){
-    save(records, file='LL1_try_error.rData')
-    output <- c(output, LLsimple_trend=NA, LLsimple_p=NA)
-  } else {
-    output <- c(output, LLsimple_trend=LL_model[2,1], LLsimple_p=LL_model[2,4])
-  }
-  ## a second version of the List Length in which only sites where the focal has been EVER recorded
-  # added 1/5/13
-  x <- try(
-    LL_model2 <- summary(glm(focal ~ Year + log2(L), binomial, data=simdata, 
-                             subset = L>0 & Site %in% focalsites))$coef
-    , silent=T)
-  if(class(x)=='try-error'){
-    save(records, file='LLfs_try_error.rData')
-    output <- c(output, LLfs_trend=NA, LLfs_p=NA)
-  } else {
-    output <- c(output, LLfs_trend=LL_model2[2,1], LLfs_p=LL_model2[2,4])
-  }
-  # end bug check
-  
-  ######################################################################################## OCCUPANCY
+  ## OCCUPANCY
   # Added February 2014 by NJBI, based on code originally written by Arco & Marnix
-  
-  if(!is.null(OccMods)){
     require(R2jags)
     
     ######################################## Setup BUGS data
@@ -265,47 +233,6 @@ run_all_methods <- function(records, min_sq=5, summarize=T, nyr=3, inclMM=2,
   } 
   
   
-  ########################################################################################
-  
-  
-  ######## Stupid method - a poisson regression of number of visits & sites
-  NRecMod <- summary(glm(num_visits_recorded ~ as.numeric(dimnames(num_visits_recorded)[[1]]), 'poisson'))$coef
-  output <- c(output, nRecords_trend=NRecMod[2,1], nRecords_p=NRecMod[2,4])
-  
-  num_sites_recorded <- with(subset(records, Species=='focal'), tapply(Site, Year, LenUniq))
-  NSmod <- summary(glm(num_sites_recorded ~ as.numeric(dimnames(num_sites_recorded)[[1]]), 'poisson'))$coef
-  output <- c(output, nSites_trend=NSmod[2,1], nSites_p=NSmod[2,4])
-  
-  #append summary info this to the output (doesn't work as attr when looping over multiple datasets
-  if (summarize) {
-    recording_summary <- summarize_recording(simdata, length(levels(records$Species))) # 0.03 seconds
-    
-    if (sum(Frescalo)>0){ # ~NB if(length(Frescalo) >1) then the following lines will only get info from the last run 
-      if (grepl("linux", R.version$platform)){
-        frst <- read.csv(file.path(find.package('sparta'), 'exec/Stats.csv'))
-        #frst <- read.csv("/prj/NEC04273/BSBI Redlisting/Master Code/Frescalo/Frescalo_V3/Stats.csv")			
-      }else{
-        frst <- read.csv(file.path(find.package('sparta'), 'exec/Stats.csv'))
-        #frst <- read.csv("P:/NEC04273_SpeciesDistribution/Workfiles/Range change sims/Frescalo/Frescalo files/Stats.csv")    
-      }
-      output <- c(output, Fr_Phi= attr(Tfac_Stdev, 'Phi'), Fr_MedianAlpha = median(frst$Alpha))
-    }            
-    
-    #get information on the prevelance of benchmark species
-    # NI 24/1/12
-    # The stats below are based on numbers of records
-    # In theory, it should be possible to extract the equivalent info from the Frescalo trend file
-    # I'll wait on this until Tom August has fixed the column names of the different versions
-    rps <- with(records, table(Species))
-    bench_thresh <- quantile(rps, 0.73)
-    pRecsBench <- sum(rps[rps >= bench_thresh])/sum(rps)
-    
-    output <- c(output, Recs_pBnchmk=pRecsBench, Recs_qFocal=mean(rps>rps[1]), recording_summary)
-  }
-  return(output)
-}
-
-
 iterate_all_scenarios <- function(nreps=1, nSites=1000, nSpecies=50, nYrs=10, pSVS=0.05, save_data=F, pFocal=list(Occ=0.5, DetP=0.5), vrs=F, mv=20, stoch=T,
                                   p_short=list(init=0.6,final=0.9), pDetMod=0.2, decline=0, id='', combos=F, Scenarios='BCDF', 
                                   inclMM=F, Frescalo=F, frescalo_path=NULL, Occ=Occ, nyr=nyr, writePath = getwd()) {
@@ -323,7 +250,7 @@ iterate_all_scenarios <- function(nreps=1, nSites=1000, nSpecies=50, nYrs=10, pS
                                         combos=combos, Scenarios=Scenarios, mv=mv, vrs=vrs, stoch=stoch)
       
       # now analyse the data
-      sapply(records, run_all_methods, inclMM=inclMM, Frescalo=Frescalo, frescalo_path=frescalo_path, OccMods=Occ, nyr=nyr)
+      sapply(records, run_all_methods, nyr=nyr)
     })
   )
   attr(output,"simpars") <- list(nreps=nreps,nSpecies=nSpecies,nSites=nSites,nYrs=nYrs,pSVS=pSVS,pFocal=pFocal,p_short=p_short,
@@ -336,7 +263,6 @@ iterate_all_scenarios <- function(nreps=1, nSites=1000, nSpecies=50, nYrs=10, pS
   return(output)
   gc()
 }
-
 
 #################################################################################################
 #model statistics 
