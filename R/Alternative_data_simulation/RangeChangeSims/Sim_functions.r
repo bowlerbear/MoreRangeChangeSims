@@ -42,36 +42,6 @@ cast_recs <- function(records, resolution='visit', focalspname='focal'){
 }
 
 
-frescalo_bootstrap <- function(fr, n=1000){
-  #takes the output from sims_to_frescalo()
-  #it returns a trend and p-value, estimated from bootstrapping
-  #NB 'trend' estimates are measured in units of 'time periods', not the underlying years (ok if nTp=nYr)
-  require(reshape2)
-  x <- apply(fr, 1, function(x) rnorm(n, mean=x[2], sd=x[3]))
-  mod <- summary(lm(value ~ Var2, data=melt(x)))
-  return(c(mod$coefficients['Var2','Estimate'], mod$coefficients['Var2','Pr(>|t|)']))
-}
-
-
-frescalo_trend<- function(fr){
-  #takes the output from sims_to_frescalo()
-  #it returns a trend and p-value
-  #if nTP=2 then it uses a z-test
-  #if nTP>2 is calculates a linear trend, ignoring stdev
-  #NB 'trend' estimates are measured in units of 'time periods', not the underlying years (ok if nTp=nYr)
-  if(nrow(fr)==2){
-    trend <- diff(fr$Tfactor)
-    z <- trend/sqrt(sum(fr$StDev^2))
-    p <- one_to_two_tail(pnorm(z))
-  } else {
-    mod <- summary(lm(Tfactor ~ TimePeriod, data=fr))
-    trend <- mod$coefficients['TimePeriod','Estimate']
-    p <- mod$coefficients['TimePeriod','Pr(>|t|)']
-  }
-  return(c(trend, p))
-}
-
-
 Convert_records_to_2tp <- function(records, splityr) {
 	# takes raw biological records and generates a dataframe suitable for Telfer etc
 	n1 <- with(subset(records, Year <= splityr), tapply(Site, Species, LenUniq)) # number of sites for each species in t1
