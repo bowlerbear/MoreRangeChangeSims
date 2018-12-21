@@ -30,401 +30,6 @@ cast_recs <- function(records, resolution='visit', focalspname='focal'){
 }
 
 
-fit_LadybirdMM <- function(MMdata, nsp=2, nyr=3){ #0.44 seconds
-	# this version returns only the coefficients and the proportion of observations that were 'well-sampled'
-	# 14 December: minor change: I removed the call to MMdata to outside the function.
-    #   this Gives extra flexibility to analyse disaggregated data.
-    require(lme4)
-
-    #subset the data
-    i <- MMdata$L >= nsp
-	  i[i==T] <- is.gridcell.wellsampled(MMdata$Site[i], n=nyr)
-
-    # 4/2/13: with small numbers of visits, it's possible that no gridcells meet the criterion
-        # I also centred the data on the mid year in order to improve numerical convergence 
-    my <-median(unique(MMdata$Year))
-    if(length(unique(MMdata$Site[i])) > 1 & var(MMdata$focal[i]) > 0){ 
-        x <- try({# another source of the bug error is if there's not enough to fit the model
-            MM <- glmer(focal ~ I(Year-my) + (1|Site), MMdata, subset=i, family=binomial)
-            coefs <- as.numeric(coef(summary(MM))[2,]) # should be compatible across versions
-            }, silent=T)
-        if(class(x)=='try-error'){
-          if(grepl('step-halvings failed', x) | grepl('did not converge', x)) coefs <- rep(NA, 4) #the model fails if the data are too sparse
-          else save(MMdata, file=paste('MM_ber_tryerror_',nsp,'.rData'))
-        }
-        # end bug check
-    } else coefs <- rep(NA, 4)
-    
-	return(c(coefs, sum(i)/length(i))) # keep this a two step process in case we later decide to extract other info
-}
-
-
-fit_ladybirdMM_bin <- function(indata, nsp=2, nyr=3, od=F, V=F){
-    # indata (simdata) contains 1 row per valid visit, with a true or false for whether it was recorded
-    # now we aggregate this to the year:monad level, with a binomial response (not bernoulli) <- thanks to Ben Bolker
-    # initially I calculated nVR directly from records, but this includes all the lists of length 1 and the poorly-sampled grid cells
-    # optional arguments for modelling Overdispersion (very slow) and verbose output
-
-    require(lme4)
-    
-    #subset the data: remove the short lists (defined by nsp)
-    data <- subset(indata, L>=nsp)
-    
-    # of these visits, which are on well-sampled sites?
-    # 21 June: if no thresholds are applied then no need to look for well-sampled set
-    if(nsp>1 & nyr>1) data <- subset(data, is.gridcell.wellsampled2(data, n=nyr))
-    
-    if(length(unique(data$Site)) > 1 & var(data$focal) > 0){
-        # we have enough data in the well-sampled set to try running a model
-        MMdata <- dcast(data, Year + Site ~ ., fun=length, value.var='L') #how many lists?
-        names(MMdata)[ncol(MMdata)] <- 'nVis'
-    
-        MMdata$nVR <- as.numeric(acast(data, Year + Site ~ ., fun=sum, value.var='focal'))
-    
-        # to fit a binomial model, we define a new column containing the number of visits without an observaiton of the focal
-        MMdata$failures <- with(MMdata, nVis - nVR)
-    
-        # centre the Year on the median value (for numerical stability)
-        MMdata$cYr <- MMdata$Year - median(unique(MMdata$Year))
-
-        x <- try({# another source of the bug error is if there's not enough to fit the model
-            if(od) {
-                MMdata$obs <- 1:nrow(MMdata)
-                MM <- glmer(cbind(nVR, failures) ~ cYr + (1|Site) + (1|obs), data=MMdata, family=binomial, verbose=V)
-            } else {
-                MM <- glmer(cbind(nVR, failures) ~ cYr + (1|Site), data=MMdata, family=binomial, verbose=V)
-            }
-            
-            coefs <- as.numeric(coef(summary(MM))[2,]) # should be compatible with old and new versions of lme4
-            }, silent=T)
-        if(class(x)=='try-error') {# bug check
-          # several sources of error in these models exists.
-          # the try statement was originally written to capture datasets that were too small, but these are handled above
-          # Jan 2014:  new code to catch errors under lme4 v1
-          # some errors we understand
-          if(grepl('step-halvings failed', x) | grepl('did not converge', x)) coefs <- rep(NA, 4) #the model fails if the data are too sparse              
-          else save(MMdata, file='MM_bin_tryerror.rData')
-        }
-        
-        # calculate the number of rows in the model as a proportion of the total site-year combos
-        p_used <- nrow(MMdata)/nrow(unique(indata[,c('Year','Site')]))
-        result <- c(coefs, p_used)
-    } else result <- c(rep(NA, 4),0) # there's no 'well-sampled' cells
-    
-    return(result) # keep this a two step process in case we later decide to extract other info
-}
-
-
-
-fit_Maes <-function(records, splityr=NULL, min_sp=5, var=T, test=4){
-  # fits the method described in Maes et al 2012 (Biol Cons 145: 258-266)
-  # I checked this by comparing the results against those in Maes et al SI
-  # the function returns numbers of sites in 2 time periods (out of the well-sampled ones), the %trend and p-value
-  # 29/11/13: updated p-value as per Thierry Onkelinx's helper functions 
-  #           (I tried adding the var=T option but it doesn't really help deliver 'sensible' T1 errors)
-  # 2/12/13: there have been several attempts to figure out the test statistic here
-  #         I've modified the code to allow a choice.
-  # 6/12/13: I've realised that low power is due to few sites passing the threshold.
-  #         For pSVS=0.05 under Control, only 9% of sites have >=5 species in both tp (12% have >=3 species)
-  #         For pSVS=0.1 under Control, 27% of sites have >=5 species in both tp (30% have >=3 species)
-  
-  
-  require(reshape2)
-  
-  if(is.null(splityr)) splityr <- median(unique(records$Year))
-  
-  # which time period is each record in?
-  records$tp <- 1+ (records$Year > splityr)
-  
-  # convert the records into a 3D array
-  rc <- acast(records, Species ~ Site ~ tp, fun=occurrence, value.var=2)
-  
-  # what is the observed species richness in each cell in each year
-  rc1 <- apply(rc, c(2,3), sum)
-  
-  # which sites have are well-sampled? (defined as having at least min_sp species in BOTH time periods)
-  well_sampled <- as.numeric(dimnames(rc1)[[1]][apply(rc1, 1, function(x) all(x>=min_sp))])
-  #well_sampled <- as.numeric(names(which(apply(rc1 >= min_sp, 1, all)))) # alternate formulation
-  
-  # look at just the data for these well-sampled cells
-  rc2 <- rc[,dimnames(rc)[[2]] %in% well_sampled,]
-  
-  # how many sites for each species in each time period?
-  rc3 <- apply(rc2, c(1,3), sum)
-  
-  # calculate the relative distribution in each time period
-  rd <- apply(rc3, 2, function(x) x/sum(x))
-  
-  n <- colSums(rc3)
-  
-  ##########################################################
-  # 3 helper functions by Thierry Onkelinx
-  sampleRd <- function(rd, n, rd.names = factor(seq_len(nrow(rd)))){
-    #Generate a new set of relative distributions based on a given set of relative distributions
-    #@author Thierry Onkelinx
-    #@export
-    #@param rd a matrix with relative distributions. The first column contains the relative distribution at the first timepoint. The column column those of the second timepoint. Other columns are ignored.
-    #@param n a vector with the number of sampled gridcells in each period. Only the first two are used.
-    #@param rd.names an optinal vector with the species names
-    #@return a matrix with five columns and as much rows as in rd. 
-    # The columns contain: 
-    # 1) the resampled relative distribution at timepoint 1
-    # 2) the resampled relative distribution at timepoint 2 under the null hypothesis (rd1 == rd2)
-    # 3) the resampled relative distribution at timepoint 2 under the alternate hypothesis (rd1 != rd2)
-    # 4) the index from Maes et al assuming the null hypothesis and the 
-    # 5) observed index from Maes et al based on the new sample.
-    t1 <- sample(rd.names, size = n[1], prob = rd[, 1], replace = TRUE)
-    t2.0 <- sample(rd.names, size = n[2], prob = rd[, 1], replace = TRUE)
-    t2.a <- sample(rd.names, size = n[2], prob = rd[, 2], replace = TRUE)
-    t1 <- table(t1) / n[1]
-    t2.0 <- table(t2.0) / n[2]
-    t2.a <- table(t2.a) / n[2]
-    cbind(t1, t2.0, t2.a, 
-          d0=(t2.0 - t1) / t1, da=(t2.a - t1) / t1, 
-          dx0=(t2.0 - t1)/rd[,1], dxa=(t2.a - t1)/rd[,1]) # Added by NI to reduce the variance
-  }
-  
-  twoSidedPValue <- function(rd, n, distribution, var=T){
-    #Calculate two sided p-values for the index from Maes et al based on their bootstrapped distribution under the null hypothesis
-    # @author Thierry Onkelinx
-    # @export
-    # @param rd a matrix with relative distributions. The first column contains the relative distribution at the first timepoint. The column column those of the second timepoint. Other columns are ignored.
-    # @param n a vector with the number of sampled gridcells in each period. Only the first two are used. Ignored when distribution is given.
-    # @param distribution a list with at least one item H0 contains a matrix with as many rows as rd containing resampled values of the index under the null hypothesis. Will be calculated if missing.
-    # @return a vector with two sided p-values for each row of rd
-    
-    var <- ifelse(var, 4,6) # should we use the randomised value in the denominator or the observed?
-    
-    if(missing(distribution)){
-      if(missing(n)){
-        stop("either n or distribution must be defined")
-      } else {
-        distribution <- list(
-          H0 = replicate(1e3, {
-            x <- sampleRd(rd = rd, n = n)[, var]
-          })
-        )
-      }
-    }
-    trend <- (rd[,2]-rd[,1])/rd[,1]
-    p <- sapply(seq_len(nrow(rd)), function(i){
-      if(is.infinite(trend[i]) | is.na(trend[i])){
-        NA
-      } else if(trend[i] > 0){
-        mean(distribution$H0[i, ] >= trend[i]) * 2
-      } else {
-        mean(distribution$H0[i, ] <= trend[i]) * 2
-      }
-    })
-  return(cbind(trend, p))  
-  }
-  
-  confintRd <- function(rd, n, distribution, alpha = 0.05, var=T){
-    #'Calculate confidence intervals for the index from Maes et al based on their bootstrapped distribution under the alternative hypothesis
-    # @author Thierry Onkelinx
-    # @export
-    #@param rd a matrix with relative distributions. The first column contains the relative distribution at the first timepoint. The column column those of the second timepoint. Other columns are ignored.
-    #@param n a vector with the number of sampled gridcells in each period. Only the first two are used. Ignored when distribution is given.
-    #@param distribution a list with at least one item Ha contains a matrix with as many rows as rd containing resampled values of the index under the alternative hypothesis. Will be calculated if missing.
-    #@param alpha the errorlevel
-    #@return a matrix with observed index, lower confidence limits, upper confidence limit and median.
-    
-    var <- ifelse(var, 5,7) # should we use the randomised t1 in the denominator or the observed?
-    
-    if(missing(distribution)){
-      if(missing(n)){
-        stop("either n or distribution must be given.")
-      } else {
-        distribution <- list(
-          Ha = replicate(1e3, {
-            x <- sampleRd(rd = rd, n = n)[, var]
-          })
-        )
-      }
-    }
-    x <- t(apply(
-      distribution$Ha, 
-      1,
-      quantile,
-      c(alpha / 2, 1 - alpha / 2, 0.5)
-    ))
-    #x <- cbind(rd[, 3], x)
-    #colnames(x) <- c("observed", "lcl", "ucl", "median")
-    colnames(x) <- c("lcl", "ucl", "median")
-    x
-  } 
-
-  ########################################################## end functions by thierry Onkelinx
-  
-  if(test==1){ # my simple version: binomial probability of t2 observations given prob in T1
-    trend <- (rd[,2]-rd[,1])/rd[,1]
-    pval <- mapply(FUN=pbinom, q=rc3[,2], prob=rd[,1], MoreArgs=list(size=sum(rc3[,2])))
-    #these are one-tailed: convert them to one-tailed
-    pval <- one_to_two_tail(pval) 
-    Maes_fit <- cbind(trend, pval)
-  } else if(test==2) {
-    Maes_fit = NULL # to implement
-  } else if(test==3) { # thierry#s modification of my bootstrapping suggestion
-    Maes_fit <- twoSidedPValue(rd, n=n, var=var)
-  } else if(test==4) { # a binomial glm with gridcell sum as denominator
-    Maes_fit <- t(sapply(1:nrow(rc3), function(i) {
-      obs <- rc3[i,]
-      mod <- glm(cbind(obs,n-obs) ~ c(1:2), binomial)
-      summary(mod)$coef[2,c(1,4)]
-      }))
-  } else if(test==5) { # a binomial glm with number of sites as denominator
-    Maes_fit <- t(sapply(1:nrow(rc3), function(i) {
-      obs <- rc3[i,]
-      mod <- glm(cbind(obs,length(well_sampled)-obs) ~ c(1:2), binomial)
-      summary(mod)$coef[2,c(1,4)]
-    }))
-  } else Maes_fit = NULL
-  
-  Maes <- data.frame(N1=rc3[,1], N2=rc3[,2], trend=Maes_fit[,1], pval=Maes_fit[,2]) 
-  attr(Maes, 'GridCellSums') <- n
-  attr(Maes, 'wellsampled') <- length(well_sampled)
-  return(Maes)
-}
-
-
-fit_Maes_old <-function(records, splityr, min_sp=5){
-    # fits the method described in Maes et al 2012 (Biol Cons 145: 258-266)
-    # I checked this by comparing the results against those in Maes et al SI
-    # I've added a sampling theory to estimate p-values. We'll see whether it's robust!
-    # the function returns numbers of sites in 2 time periods (out of the well-sampled ones), the %trend and p-value
-    # 31/9/13: updated p-value as per Thierry Onkelinx's code
-  
-    require(reshape2)
-    
-    # which time period is each record in?
-    records$tp <- 1+ (records$Year > splityr)
-    
-    # convert the records into a 3D array
-    rc <- acast(records, Species ~ Site ~ tp, fun=occurrence, value.var=2)
-    
-    # what is the observed species richness in each cell in each year
-    rc1 <- apply(rc, c(2,3), sum)
-     
-    # which sites have are well-sampled? (defined as having at least min_sp species in BOTH time periods)
-    well_sampled <- as.numeric(dimnames(rc1)[[1]][apply(rc1, 1, function(x) all(x>=min_sp))])
-    #well_sampled <- as.numeric(names(which(apply(rc1 >= min_sp, 1, all)))) # alternate formulation
-    
-    # look at just the data for these well-sampled cells
-    rc2 <- rc[,dimnames(rc)[[2]] %in% well_sampled,]
-    
-    # how many sites for each species in each time period?
-    rc3 <- apply(rc2, c(1,3), sum)
-    
-    # calculate the relative distribution in each time period
-    #nS <- colSums(rc1>0)# the number of sites in each time period
-    #rd1 <- rc3[,1]/nS[1]
-    #rd2 <- rc3[,2]/nS[2]
-    # trend <- 100 * (rd2-rd1)/rd1
-    
-    # 12.9.13: THIS CODE ABOVE IS WRONG! 
-    # RE-reading Maes, I see that the denominator is *not* the total number of cells in each period
-    # rather, it's the total number of unqiue site-species combos within the well-sampled set (for each period)
-    # this is what Maes calles the 'grid cell sum'
-    # CORRECTED VERSION HERE:
-    rd <- apply(rc3, 2, function(x) x/sum(x))
-    #trend <- 100 * (rd[,2]-rd[,1])/rd[,1]    # 13/11/13: trend is estimated below as a proportion, not %
-    
-    # we can assess the significance of this method as follows
-    # first we assume the distribution of each species is equal among poorly-sampled and well-sampled sites
-    # Under the null hypothesis that total proportion of sites has not changed,
-    # we can calculate the binomial probability of the 'estimated number of successes
-    # estimated number of successes is defined here as nsr2 (number of sites recorded in t2)
-    # where the number of trials = nS[2]
-    # 12.9.13 I've changed this
-    
-    #nsr2 <- nS[1] * rc3[,2] / length(well_sampled)
-    #true_probs <- rc3[,1]/length(well_sampled)
-    #pval <- mapply(FUN=pbinom, q=rc3[,2], prob=true_probs, MoreArgs=list(size=nS[1]))
-    
-    # corrected version
-    #pval <- mapply(FUN=pbinom, q=rc3[,2], prob=rd[,1], MoreArgs=list(size=sum(rc3[,2])))
-
-    #these are one-tailed: convert them to one-tailed
-    #pval <- one_to_two_tail(pval)
-  
-    # New version, by Thierry Onkelinx
-    n <- colSums(rc3)
-    #confidence intervals under the alternative hypothesis
-    CI <- t(apply(rd, 1, function(x){
-      quantile(
-        na.omit(#ignore trends where the species is absent in both time periods
-          apply(
-            #simulate under the alternative hypothesis
-            matrix(
-              rbinom(2e3, size = n, prob = x) / n,
-              nrow = 2),
-            2,
-            #calculate simulated trend under the alternative hypothesis
-            function(y){(y[2] - y[1]) / y[1]}
-          )
-        ),
-        prob = c(0.025, 0.975)
-      )
-    }))
-    
-    #p-values under the null hypothesis
-    p.values <- t(apply(rd, 1, function(x){
-      trend <- (x[2] - x[1]) / x[1]
-      trend.null <- na.omit(apply(
-        #simulate under the null hypothesis x[1] == x[2]
-        matrix(
-          rbinom(2e3, size = n, prob = x[1]) / n,
-          nrow = 2
-        ),
-        2,
-        #calculate simulated trend under the null hypothesis
-        function(y){(y[2] - y[1]) / y[1]}
-      ))
-      c(
-        trend = unname(trend),
-        p.negative.trend.one.sided = mean(trend.null <= trend),
-        p.positive.trend.one.sided = mean(trend.null >= trend),
-        p.absolute.trend.two.sided = mean(abs(trend.null) >= abs(trend))
-      )
-    }))
-########## end of Thierry Onkelinx's code    
-    
-    Maes <- data.frame(N1=rc3[,1], N2=rc3[,2], trend=p.values[,1], pval=p.values[,4]) 
-    attr(Maes, 'GridCellSums') <- colSums(rc3)
-    attr(Maes, 'wellsampled') <- length(well_sampled)
-    return(Maes)
-}
-
-
-#takes a dataframe of observations, with a vector indexing the time period
-fit_Telfer <- function(gridcell_counts, min_sq=5) {
-	#takes output from Convert_to_2tp and fits the telfer model
-	#convert to proportions	
-	p1 <- gridcell_counts$n1/attr(gridcell_counts, 'denom')[1]
-	p2 <- gridcell_counts$n2/attr(gridcell_counts, 'denom')[2]
-
-	#Telfer's method is the *standardized* residual from a logit-logit regression
-	model1 <- lm( log(p2/(1-p2)) ~ log(p1/(1-p1)), subset=gridcell_counts$n1 >=min_sq & p2 >0)
-	return(rstandard(model1))
-	}
-
-is.gridcell.wellsampled <- function(CellID, n=3){
-	# modified version of filter.gridcells()
-	#takes the dataframe and returns the rownumbers of the dataset identifying well-sampled the gridcells
-	nyrs <- table(CellID)
-	return(CellID %in% names(nyrs)[nyrs >= n])
-	}
-
-is.gridcell.wellsampled2 <- function(data, n=3){
-    #takes the dataframe and returns a logical vector identifying well-sampled gridcells
-    #this version copied from the Odonata trend analysis (late Feb 2013)
-    #changed 4 March to filter on number of years, not number of visits
-    require(reshape2)
-    x <- acast(data, Site~Year, fun=length, value.var='L') # x is the number of visits
-    num_yrs_visits  <- rowSums(x>0) # convert nVisits to binary and sum across years 
-    sites_to_include <- num_yrs_visits >= n  
-    return(data$Site %in% dimnames(x)[[1]][sites_to_include])
-}
 
 ################################################# SIM-SPECIFIC FUNCTIONS
 
@@ -1566,3 +1171,399 @@ visit_these_sites <- function(sites_visited, true_data){
 }
 
 #end
+
+#####ARE THE BELOW USED???##############################################################
+fit_LadybirdMM <- function(MMdata, nsp=2, nyr=3){ #0.44 seconds
+  # this version returns only the coefficients and the proportion of observations that were 'well-sampled'
+  # 14 December: minor change: I removed the call to MMdata to outside the function.
+  #   this Gives extra flexibility to analyse disaggregated data.
+  require(lme4)
+  
+  #subset the data
+  i <- MMdata$L >= nsp
+  i[i==T] <- is.gridcell.wellsampled(MMdata$Site[i], n=nyr)
+  
+  # 4/2/13: with small numbers of visits, it's possible that no gridcells meet the criterion
+  # I also centred the data on the mid year in order to improve numerical convergence 
+  my <-median(unique(MMdata$Year))
+  if(length(unique(MMdata$Site[i])) > 1 & var(MMdata$focal[i]) > 0){ 
+    x <- try({# another source of the bug error is if there's not enough to fit the model
+      MM <- glmer(focal ~ I(Year-my) + (1|Site), MMdata, subset=i, family=binomial)
+      coefs <- as.numeric(coef(summary(MM))[2,]) # should be compatible across versions
+    }, silent=T)
+    if(class(x)=='try-error'){
+      if(grepl('step-halvings failed', x) | grepl('did not converge', x)) coefs <- rep(NA, 4) #the model fails if the data are too sparse
+      else save(MMdata, file=paste('MM_ber_tryerror_',nsp,'.rData'))
+    }
+    # end bug check
+  } else coefs <- rep(NA, 4)
+  
+  return(c(coefs, sum(i)/length(i))) # keep this a two step process in case we later decide to extract other info
+}
+
+fit_ladybirdMM_bin <- function(indata, nsp=2, nyr=3, od=F, V=F){
+  # indata (simdata) contains 1 row per valid visit, with a true or false for whether it was recorded
+  # now we aggregate this to the year:monad level, with a binomial response (not bernoulli) <- thanks to Ben Bolker
+  # initially I calculated nVR directly from records, but this includes all the lists of length 1 and the poorly-sampled grid cells
+  # optional arguments for modelling Overdispersion (very slow) and verbose output
+  
+  require(lme4)
+  
+  #subset the data: remove the short lists (defined by nsp)
+  data <- subset(indata, L>=nsp)
+  
+  # of these visits, which are on well-sampled sites?
+  # 21 June: if no thresholds are applied then no need to look for well-sampled set
+  if(nsp>1 & nyr>1) data <- subset(data, is.gridcell.wellsampled2(data, n=nyr))
+  
+  if(length(unique(data$Site)) > 1 & var(data$focal) > 0){
+    # we have enough data in the well-sampled set to try running a model
+    MMdata <- dcast(data, Year + Site ~ ., fun=length, value.var='L') #how many lists?
+    names(MMdata)[ncol(MMdata)] <- 'nVis'
+    
+    MMdata$nVR <- as.numeric(acast(data, Year + Site ~ ., fun=sum, value.var='focal'))
+    
+    # to fit a binomial model, we define a new column containing the number of visits without an observaiton of the focal
+    MMdata$failures <- with(MMdata, nVis - nVR)
+    
+    # centre the Year on the median value (for numerical stability)
+    MMdata$cYr <- MMdata$Year - median(unique(MMdata$Year))
+    
+    x <- try({# another source of the bug error is if there's not enough to fit the model
+      if(od) {
+        MMdata$obs <- 1:nrow(MMdata)
+        MM <- glmer(cbind(nVR, failures) ~ cYr + (1|Site) + (1|obs), data=MMdata, family=binomial, verbose=V)
+      } else {
+        MM <- glmer(cbind(nVR, failures) ~ cYr + (1|Site), data=MMdata, family=binomial, verbose=V)
+      }
+      
+      coefs <- as.numeric(coef(summary(MM))[2,]) # should be compatible with old and new versions of lme4
+    }, silent=T)
+    if(class(x)=='try-error') {# bug check
+      # several sources of error in these models exists.
+      # the try statement was originally written to capture datasets that were too small, but these are handled above
+      # Jan 2014:  new code to catch errors under lme4 v1
+      # some errors we understand
+      if(grepl('step-halvings failed', x) | grepl('did not converge', x)) coefs <- rep(NA, 4) #the model fails if the data are too sparse              
+      else save(MMdata, file='MM_bin_tryerror.rData')
+    }
+    
+    # calculate the number of rows in the model as a proportion of the total site-year combos
+    p_used <- nrow(MMdata)/nrow(unique(indata[,c('Year','Site')]))
+    result <- c(coefs, p_used)
+  } else result <- c(rep(NA, 4),0) # there's no 'well-sampled' cells
+  
+  return(result) # keep this a two step process in case we later decide to extract other info
+}
+
+
+
+fit_Maes <-function(records, splityr=NULL, min_sp=5, var=T, test=4){
+  # fits the method described in Maes et al 2012 (Biol Cons 145: 258-266)
+  # I checked this by comparing the results against those in Maes et al SI
+  # the function returns numbers of sites in 2 time periods (out of the well-sampled ones), the %trend and p-value
+  # 29/11/13: updated p-value as per Thierry Onkelinx's helper functions 
+  #           (I tried adding the var=T option but it doesn't really help deliver 'sensible' T1 errors)
+  # 2/12/13: there have been several attempts to figure out the test statistic here
+  #         I've modified the code to allow a choice.
+  # 6/12/13: I've realised that low power is due to few sites passing the threshold.
+  #         For pSVS=0.05 under Control, only 9% of sites have >=5 species in both tp (12% have >=3 species)
+  #         For pSVS=0.1 under Control, 27% of sites have >=5 species in both tp (30% have >=3 species)
+  
+  
+  require(reshape2)
+  
+  if(is.null(splityr)) splityr <- median(unique(records$Year))
+  
+  # which time period is each record in?
+  records$tp <- 1+ (records$Year > splityr)
+  
+  # convert the records into a 3D array
+  rc <- acast(records, Species ~ Site ~ tp, fun=occurrence, value.var=2)
+  
+  # what is the observed species richness in each cell in each year
+  rc1 <- apply(rc, c(2,3), sum)
+  
+  # which sites have are well-sampled? (defined as having at least min_sp species in BOTH time periods)
+  well_sampled <- as.numeric(dimnames(rc1)[[1]][apply(rc1, 1, function(x) all(x>=min_sp))])
+  #well_sampled <- as.numeric(names(which(apply(rc1 >= min_sp, 1, all)))) # alternate formulation
+  
+  # look at just the data for these well-sampled cells
+  rc2 <- rc[,dimnames(rc)[[2]] %in% well_sampled,]
+  
+  # how many sites for each species in each time period?
+  rc3 <- apply(rc2, c(1,3), sum)
+  
+  # calculate the relative distribution in each time period
+  rd <- apply(rc3, 2, function(x) x/sum(x))
+  
+  n <- colSums(rc3)
+  
+  ##########################################################
+  # 3 helper functions by Thierry Onkelinx
+  sampleRd <- function(rd, n, rd.names = factor(seq_len(nrow(rd)))){
+    #Generate a new set of relative distributions based on a given set of relative distributions
+    #@author Thierry Onkelinx
+    #@export
+    #@param rd a matrix with relative distributions. The first column contains the relative distribution at the first timepoint. The column column those of the second timepoint. Other columns are ignored.
+    #@param n a vector with the number of sampled gridcells in each period. Only the first two are used.
+    #@param rd.names an optinal vector with the species names
+    #@return a matrix with five columns and as much rows as in rd. 
+    # The columns contain: 
+    # 1) the resampled relative distribution at timepoint 1
+    # 2) the resampled relative distribution at timepoint 2 under the null hypothesis (rd1 == rd2)
+    # 3) the resampled relative distribution at timepoint 2 under the alternate hypothesis (rd1 != rd2)
+    # 4) the index from Maes et al assuming the null hypothesis and the 
+    # 5) observed index from Maes et al based on the new sample.
+    t1 <- sample(rd.names, size = n[1], prob = rd[, 1], replace = TRUE)
+    t2.0 <- sample(rd.names, size = n[2], prob = rd[, 1], replace = TRUE)
+    t2.a <- sample(rd.names, size = n[2], prob = rd[, 2], replace = TRUE)
+    t1 <- table(t1) / n[1]
+    t2.0 <- table(t2.0) / n[2]
+    t2.a <- table(t2.a) / n[2]
+    cbind(t1, t2.0, t2.a, 
+          d0=(t2.0 - t1) / t1, da=(t2.a - t1) / t1, 
+          dx0=(t2.0 - t1)/rd[,1], dxa=(t2.a - t1)/rd[,1]) # Added by NI to reduce the variance
+  }
+  
+  twoSidedPValue <- function(rd, n, distribution, var=T){
+    #Calculate two sided p-values for the index from Maes et al based on their bootstrapped distribution under the null hypothesis
+    # @author Thierry Onkelinx
+    # @export
+    # @param rd a matrix with relative distributions. The first column contains the relative distribution at the first timepoint. The column column those of the second timepoint. Other columns are ignored.
+    # @param n a vector with the number of sampled gridcells in each period. Only the first two are used. Ignored when distribution is given.
+    # @param distribution a list with at least one item H0 contains a matrix with as many rows as rd containing resampled values of the index under the null hypothesis. Will be calculated if missing.
+    # @return a vector with two sided p-values for each row of rd
+    
+    var <- ifelse(var, 4,6) # should we use the randomised value in the denominator or the observed?
+    
+    if(missing(distribution)){
+      if(missing(n)){
+        stop("either n or distribution must be defined")
+      } else {
+        distribution <- list(
+          H0 = replicate(1e3, {
+            x <- sampleRd(rd = rd, n = n)[, var]
+          })
+        )
+      }
+    }
+    trend <- (rd[,2]-rd[,1])/rd[,1]
+    p <- sapply(seq_len(nrow(rd)), function(i){
+      if(is.infinite(trend[i]) | is.na(trend[i])){
+        NA
+      } else if(trend[i] > 0){
+        mean(distribution$H0[i, ] >= trend[i]) * 2
+      } else {
+        mean(distribution$H0[i, ] <= trend[i]) * 2
+      }
+    })
+    return(cbind(trend, p))  
+  }
+  
+  confintRd <- function(rd, n, distribution, alpha = 0.05, var=T){
+    #'Calculate confidence intervals for the index from Maes et al based on their bootstrapped distribution under the alternative hypothesis
+    # @author Thierry Onkelinx
+    # @export
+    #@param rd a matrix with relative distributions. The first column contains the relative distribution at the first timepoint. The column column those of the second timepoint. Other columns are ignored.
+    #@param n a vector with the number of sampled gridcells in each period. Only the first two are used. Ignored when distribution is given.
+    #@param distribution a list with at least one item Ha contains a matrix with as many rows as rd containing resampled values of the index under the alternative hypothesis. Will be calculated if missing.
+    #@param alpha the errorlevel
+    #@return a matrix with observed index, lower confidence limits, upper confidence limit and median.
+    
+    var <- ifelse(var, 5,7) # should we use the randomised t1 in the denominator or the observed?
+    
+    if(missing(distribution)){
+      if(missing(n)){
+        stop("either n or distribution must be given.")
+      } else {
+        distribution <- list(
+          Ha = replicate(1e3, {
+            x <- sampleRd(rd = rd, n = n)[, var]
+          })
+        )
+      }
+    }
+    x <- t(apply(
+      distribution$Ha, 
+      1,
+      quantile,
+      c(alpha / 2, 1 - alpha / 2, 0.5)
+    ))
+    #x <- cbind(rd[, 3], x)
+    #colnames(x) <- c("observed", "lcl", "ucl", "median")
+    colnames(x) <- c("lcl", "ucl", "median")
+    x
+  } 
+  
+  ########################################################## end functions by thierry Onkelinx
+  
+  if(test==1){ # my simple version: binomial probability of t2 observations given prob in T1
+    trend <- (rd[,2]-rd[,1])/rd[,1]
+    pval <- mapply(FUN=pbinom, q=rc3[,2], prob=rd[,1], MoreArgs=list(size=sum(rc3[,2])))
+    #these are one-tailed: convert them to one-tailed
+    pval <- one_to_two_tail(pval) 
+    Maes_fit <- cbind(trend, pval)
+  } else if(test==2) {
+    Maes_fit = NULL # to implement
+  } else if(test==3) { # thierry#s modification of my bootstrapping suggestion
+    Maes_fit <- twoSidedPValue(rd, n=n, var=var)
+  } else if(test==4) { # a binomial glm with gridcell sum as denominator
+    Maes_fit <- t(sapply(1:nrow(rc3), function(i) {
+      obs <- rc3[i,]
+      mod <- glm(cbind(obs,n-obs) ~ c(1:2), binomial)
+      summary(mod)$coef[2,c(1,4)]
+    }))
+  } else if(test==5) { # a binomial glm with number of sites as denominator
+    Maes_fit <- t(sapply(1:nrow(rc3), function(i) {
+      obs <- rc3[i,]
+      mod <- glm(cbind(obs,length(well_sampled)-obs) ~ c(1:2), binomial)
+      summary(mod)$coef[2,c(1,4)]
+    }))
+  } else Maes_fit = NULL
+  
+  Maes <- data.frame(N1=rc3[,1], N2=rc3[,2], trend=Maes_fit[,1], pval=Maes_fit[,2]) 
+  attr(Maes, 'GridCellSums') <- n
+  attr(Maes, 'wellsampled') <- length(well_sampled)
+  return(Maes)
+}
+
+
+fit_Maes_old <-function(records, splityr, min_sp=5){
+  # fits the method described in Maes et al 2012 (Biol Cons 145: 258-266)
+  # I checked this by comparing the results against those in Maes et al SI
+  # I've added a sampling theory to estimate p-values. We'll see whether it's robust!
+  # the function returns numbers of sites in 2 time periods (out of the well-sampled ones), the %trend and p-value
+  # 31/9/13: updated p-value as per Thierry Onkelinx's code
+  
+  require(reshape2)
+  
+  # which time period is each record in?
+  records$tp <- 1+ (records$Year > splityr)
+  
+  # convert the records into a 3D array
+  rc <- acast(records, Species ~ Site ~ tp, fun=occurrence, value.var=2)
+  
+  # what is the observed species richness in each cell in each year
+  rc1 <- apply(rc, c(2,3), sum)
+  
+  # which sites have are well-sampled? (defined as having at least min_sp species in BOTH time periods)
+  well_sampled <- as.numeric(dimnames(rc1)[[1]][apply(rc1, 1, function(x) all(x>=min_sp))])
+  #well_sampled <- as.numeric(names(which(apply(rc1 >= min_sp, 1, all)))) # alternate formulation
+  
+  # look at just the data for these well-sampled cells
+  rc2 <- rc[,dimnames(rc)[[2]] %in% well_sampled,]
+  
+  # how many sites for each species in each time period?
+  rc3 <- apply(rc2, c(1,3), sum)
+  
+  # calculate the relative distribution in each time period
+  #nS <- colSums(rc1>0)# the number of sites in each time period
+  #rd1 <- rc3[,1]/nS[1]
+  #rd2 <- rc3[,2]/nS[2]
+  # trend <- 100 * (rd2-rd1)/rd1
+  
+  # 12.9.13: THIS CODE ABOVE IS WRONG! 
+  # RE-reading Maes, I see that the denominator is *not* the total number of cells in each period
+  # rather, it's the total number of unqiue site-species combos within the well-sampled set (for each period)
+  # this is what Maes calles the 'grid cell sum'
+  # CORRECTED VERSION HERE:
+  rd <- apply(rc3, 2, function(x) x/sum(x))
+  #trend <- 100 * (rd[,2]-rd[,1])/rd[,1]    # 13/11/13: trend is estimated below as a proportion, not %
+  
+  # we can assess the significance of this method as follows
+  # first we assume the distribution of each species is equal among poorly-sampled and well-sampled sites
+  # Under the null hypothesis that total proportion of sites has not changed,
+  # we can calculate the binomial probability of the 'estimated number of successes
+  # estimated number of successes is defined here as nsr2 (number of sites recorded in t2)
+  # where the number of trials = nS[2]
+  # 12.9.13 I've changed this
+  
+  #nsr2 <- nS[1] * rc3[,2] / length(well_sampled)
+  #true_probs <- rc3[,1]/length(well_sampled)
+  #pval <- mapply(FUN=pbinom, q=rc3[,2], prob=true_probs, MoreArgs=list(size=nS[1]))
+  
+  # corrected version
+  #pval <- mapply(FUN=pbinom, q=rc3[,2], prob=rd[,1], MoreArgs=list(size=sum(rc3[,2])))
+  
+  #these are one-tailed: convert them to one-tailed
+  #pval <- one_to_two_tail(pval)
+  
+  # New version, by Thierry Onkelinx
+  n <- colSums(rc3)
+  #confidence intervals under the alternative hypothesis
+  CI <- t(apply(rd, 1, function(x){
+    quantile(
+      na.omit(#ignore trends where the species is absent in both time periods
+        apply(
+          #simulate under the alternative hypothesis
+          matrix(
+            rbinom(2e3, size = n, prob = x) / n,
+            nrow = 2),
+          2,
+          #calculate simulated trend under the alternative hypothesis
+          function(y){(y[2] - y[1]) / y[1]}
+        )
+      ),
+      prob = c(0.025, 0.975)
+    )
+  }))
+  
+  #p-values under the null hypothesis
+  p.values <- t(apply(rd, 1, function(x){
+    trend <- (x[2] - x[1]) / x[1]
+    trend.null <- na.omit(apply(
+      #simulate under the null hypothesis x[1] == x[2]
+      matrix(
+        rbinom(2e3, size = n, prob = x[1]) / n,
+        nrow = 2
+      ),
+      2,
+      #calculate simulated trend under the null hypothesis
+      function(y){(y[2] - y[1]) / y[1]}
+    ))
+    c(
+      trend = unname(trend),
+      p.negative.trend.one.sided = mean(trend.null <= trend),
+      p.positive.trend.one.sided = mean(trend.null >= trend),
+      p.absolute.trend.two.sided = mean(abs(trend.null) >= abs(trend))
+    )
+  }))
+  ########## end of Thierry Onkelinx's code    
+  
+  Maes <- data.frame(N1=rc3[,1], N2=rc3[,2], trend=p.values[,1], pval=p.values[,4]) 
+  attr(Maes, 'GridCellSums') <- colSums(rc3)
+  attr(Maes, 'wellsampled') <- length(well_sampled)
+  return(Maes)
+}
+
+
+#takes a dataframe of observations, with a vector indexing the time period
+fit_Telfer <- function(gridcell_counts, min_sq=5) {
+  #takes output from Convert_to_2tp and fits the telfer model
+  #convert to proportions	
+  p1 <- gridcell_counts$n1/attr(gridcell_counts, 'denom')[1]
+  p2 <- gridcell_counts$n2/attr(gridcell_counts, 'denom')[2]
+  
+  #Telfer's method is the *standardized* residual from a logit-logit regression
+  model1 <- lm( log(p2/(1-p2)) ~ log(p1/(1-p1)), subset=gridcell_counts$n1 >=min_sq & p2 >0)
+  return(rstandard(model1))
+}
+
+is.gridcell.wellsampled <- function(CellID, n=3){
+  # modified version of filter.gridcells()
+  #takes the dataframe and returns the rownumbers of the dataset identifying well-sampled the gridcells
+  nyrs <- table(CellID)
+  return(CellID %in% names(nyrs)[nyrs >= n])
+}
+
+is.gridcell.wellsampled2 <- function(data, n=3){
+  #takes the dataframe and returns a logical vector identifying well-sampled gridcells
+  #this version copied from the Odonata trend analysis (late Feb 2013)
+  #changed 4 March to filter on number of years, not number of visits
+  require(reshape2)
+  x <- acast(data, Site~Year, fun=length, value.var='L') # x is the number of visits
+  num_yrs_visits  <- rowSums(x>0) # convert nVisits to binary and sum across years 
+  sites_to_include <- num_yrs_visits >= n  
+  return(data$Site %in% dimnames(x)[[1]][sites_to_include])
+}
