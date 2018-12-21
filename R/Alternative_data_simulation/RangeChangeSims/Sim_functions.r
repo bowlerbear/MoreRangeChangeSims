@@ -1,19 +1,7 @@
-# Nick Isaac
-# 22 Ocobter 2012
-# 
-# Complete rewrite of most simulation functionality
-# 
-#################################################
-#
-# TO DO
-# Check plot functions with multiple MM thresholds
-#
 #################################################
 require(reshape2)
 require(lme4)
-#source('sims_to_frescalo.r')
-#source('run_fresc_param_sims.r')
-#source('Explore_results.r')
+
 ################################################# GENERIC FUNCTIONS - TO BE ADDED TO TO 'RANGE CHANGE FUNCS'
 occurrence <- function(x) length(x) > 0 # takes a vector and returns whether the length is greater than 0
 
@@ -814,62 +802,6 @@ plot_summary_stats3 <- function(output, datecode=NULL, maxN=7){
 	dev.off()	
 	}
 	
-
-recording_cycle_old <- function(nVisits, true_data, with_repl=T, max_vis=10) {
-	# runs a 'recording cycle': nVisits are apportioned randomly among the sites (rows) in true_data: some sites get multiple visits
-    # 3 December: modified to give 'fatter tails' in the distribution of recording effort among sites
-    #   in UK recording data, about 1/4 of monads visited each year get further visits
-    #   For the Dutch Dragonfly & Butterfly data, the figure is about 1/2
-    #   The parameterization here is for UK.
-    #   this makes the total number of visits and expectation, rather than fixed
-    #  8/4/13: I removed the correlation between p(visited) and species richness
-    # 24/4/13: New formulation 
-    
-    
-    nS = nrow(true_data) # number of sites
-  
-    # this is the old version
-    #sites_visited_old <- sample(1:nS, nVisits, repl=with_repl) #sites_visited is a vector of site identities
-	# about 12% of sites receive multiple visits per year (for 250 visits to 1000 sites)
-
-    # getting the number of visits per site from the binomial distribution: same distribution as above
-    #vis_per_site <-rbinom(nS, max_vis, nVisits/(nS*max_vis)) # only 10% of visited sites get >1 visit
-    #getting the number of sites from the betabinomial 
-    #shape = 3000/nVisits # just about right to get 25% of visited sites having >1 visit
-    #pr <- rbeta(nS,1,shape) # thanks to Steve Freeman for this insight
-    #vis_per_site <- rbinom(nS, max_vis, pr*nVisits/nS) # increases to 25% the proportion visited twice or more
-    #sites_visited_bb <- unlist(sapply(which(vis_per_site>0), function(i) rep(i, vis_per_site[i])))
-    #problem - shape parameter means that nVisit is nonlinearly related to the acutal number of visits
-    
-    #14 December: revert to the old way, but make the probability of being selected related to richness 
-    #rich <- rowSums(true_data)
-    #temp <- rich - rpois(nS,2)
-    #ss <- (temp/max(temp))^2 # makes negative values postive & increases the spread
-    #sites_visited <- sample(1:nS, nVisits, repl=with_repl, prob=ss/sum(ss)) #sites_visited is a vector of site identities
-    
-    # 8 April: we no longer need 'memory' in the system
-    sites_visited <- sample(1:nS, nVisits, repl=with_repl)
-    
-    #temp <- rich + rpois(nS,mean(rich)) - rpois(nS,mean(rich))
-    #temp[temp<0] <- 0
-    #sites_visited <- sample(1:nS, nVisits, repl=with_repl, prob=temp) #sites_visited is a vector of site identities
-    
-    # compare the differnet ways
-    #stats <- list(sites_visited_old, sites_visited_bb, sites_visited)
-    #sapply(stats, length) # number of visits
-    #lapply(stats, function(x) table(table(x)))
-    #sapply(stats, function(x) {x<- table(table(x)); sum(x)}) # number of sites
-    #sapply(stats, function(x) {x<- table(table(x)); sum(x[-1])/sum(x)}) # prop getting multi visits
-    #table(table(sites_visited))
-    #the new way is better, but only 50% higher
-	
-    x <- visit_these_sites(sites_visited, true_data)
-    records <- melt(x) #Var2 is the VisitNum
-	names(records)[1:2] <- c('Species', 'Visit')
-	records <- subset(records, subset=value==1)
-	records$Site <- sites_visited[records$Visit]
-	return(subset(records, select=c(Species, Visit, Site)))
-}
 
 recording_cycle <- function(pSVS=0.05, true_data, max_vis=10, VisRichSites=F, stochastic=T) {
     # runs a 'recording cycle': nVisits are apportioned randomly among the sites (rows) in true_data: some sites get multiple visits
