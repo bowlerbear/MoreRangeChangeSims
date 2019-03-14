@@ -24,3 +24,5 @@ SimOcc <- function(PrOcc, PrObs, NVisits = 4, NPlots = 100) {
   Obs <- rbinom(length(PrOcc), NVisits, PrObs)*Occ
   data.frame(Occupancy=Occ, Observations=Obs, Visits=NVisits)
 }
+
+

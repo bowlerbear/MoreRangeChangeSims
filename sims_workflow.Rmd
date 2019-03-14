@@ -1,0 +1,83 @@
+---
+title: "sims_workflow"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Define basic scenario set-up
+
+```{r}
+
+#Number of sites in the landscape
+NSites <- 8
+
+#Number of species in the regional pool
+NSpecies <- 4
+
+#Number of visits to each site within each year
+NVisits <- 4
+
+#Define average habitat quality of each site
+ACovariate <- rnorm(NSites)
+
+#Define average occupancy of species
+OccProb <- 0.5
+
+#Define average detection probability
+DetProb <- 0.5
+
+```
+
+Simulate the occurences
+
+```{r}
+
+occ <- getOccuHistory(occProb = 0.5)
+
+```
+
+
+Simulate the detection process at repeat visits
+
+```{r}
+
+obs <- getRepeatVisits(nVisits=5, PrObs = DetProb)
+
+```
+
+
+Plot detection history
+
+```{r}
+
+plotHistory(obs)
+
+```
+
+Define parameters of interest regarding bias
+
+```{r}
+
+
+
+
+```
+
+
+
+Simulate the data
+
+```{r}
+
+
+```
+
+
+Plot the detection history at each site
+
+```{r}
+
+```
