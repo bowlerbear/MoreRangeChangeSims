@@ -7,6 +7,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
 Define basic scenario set-up
 
 ```{r}
@@ -21,10 +22,13 @@ NSpecies <- 4
 NVisits <- 4
 
 #Define average habitat quality of each site
-ACovariate <- rnorm(NSites)
+Q_covariate <- rnorm(NSites)
 
 #Define average occupancy of species
-OccProb <- 0.5
+OccProb <- rep(0.5,NSpecies)
+
+#Define quality effects
+Q_effects <- rep(0,NSpecies)
 
 #Define average detection probability
 DetProb <- 0.5
@@ -34,17 +38,17 @@ DetProb <- 0.5
 Simulate the occurences
 
 ```{r}
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getOccuHistory.R')
 
-occ <- getOccuHistory(occProb = 0.5)
+Occ <- getOccuHistory(occProb = OccProb, beta=Q_effects, covariates=Q_covariate)
 
 ```
-
 
 Simulate the detection process at repeat visits
 
 ```{r}
-
-obs <- getRepeatVisits(nVisits=5, PrObs = DetProb)
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getRepeatVisits.R')
+Obs <- getRepeatVisits(nVisits=5, PrObs = DetProb)
 
 ```
 
@@ -52,32 +56,46 @@ obs <- getRepeatVisits(nVisits=5, PrObs = DetProb)
 Plot detection history
 
 ```{r}
-
-plotHistory(obs)
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/PlotHistory.R')
+plotHistory(Obs)
 
 ```
 
-Define parameters of interest regarding bias
 
+Format data for bugs model
 ```{r}
 
+getBugsData <- function(Obs){
+  bugs.data = list(y = Obs$obs,
+                   nsite = length(unique(Obs$Site)),
+                   nvisit = length(unique(Obs$Visit)),
+                   Site = Obs$Site)
+  
+  return(bugs.data)  
+}
 
-
+bugs.data <- getBugsData(subset(Obs,Species==1))
 
 ```
 
-
-
-Simulate the data
+Run model
 
 ```{r}
+#fit model
+library(rjags)
+library(R2WinBUGS)
+library(jagsUI)
 
+#define model params
+ni <- 6000   ;   nb <- 2000   ;   nt <- 5   ;   nc <- 3
+
+
+#specify parameters to monitor
+params <- c("prop.p","prop.o")
+
+#run model
+out <- jags(bugs.data, inits=NULL, params, "R/basicSim.txt", n.thin=nt,
+            n.chains=nc, n.burnin=nb,n.iter=ni,parallel=T)
 
 ```
 
-
-Plot the detection history at each site
-
-```{r}
-
-```
