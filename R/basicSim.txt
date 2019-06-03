@@ -1,0 +1,24 @@
+model{
+ # JAGS code basic model
+
+# State model
+for (i in 1:nsite){ 
+    z[i] ~ dbern(muZ[i]) 
+    logit(muZ[i])<- int.o
+  }   
+
+### Observation Model
+for(j in 1:nvisit) {
+  y[j] ~ dbern(Py[j])
+  Py[j]<- z[Site[j]]*p[j]
+  logit(p[j]) <-  int.p
+} 
+
+  
+# Observation model priors
+prop.o ~ dunif(0,1)
+int.o <- logit(prop.o)
+prop.p ~ dunif(0,1)
+int.p <- logit(prop.p)
+
+}
