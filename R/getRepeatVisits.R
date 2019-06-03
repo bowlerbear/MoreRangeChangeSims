@@ -1,5 +1,5 @@
 #these functions take the true occurence history and assume sampling in a series of reapeated visits
-getRepeatVisits <- function(nVisits=5, PrObs = DetProb){
+getRepeatVisits <- function(nVisits=NVisits, PrObs = DetProb){
   
   Occ$NVisits <- rep(nVisits, nrow(Occ))
   
