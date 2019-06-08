@@ -5,12 +5,28 @@
 # sparta occupancy model function.
 
 #melt data frame
-getSpartaFormat<-function(Obs){
-library(reshape)
-Obs <- melt(Obs,id=c("Site","Visit"))
-names(Obs)[which(names(Obs)=="variable")] <- "Species"
-names(Obs)[which(names(Obs)=="value")] <- "obs"
+getSpartaFormat<-function(Obs,focalSpecies=1){
+  
+  #melt data frame
+  require(reshape2)
+  ObsMelted <- melt(Obs,id=c("Year","Species","Site","Occurence","DetProb"))
+  names(ObsMelted)[which(names(ObsMelted)=="variable")]<-"Visit"
+  names(ObsMelted)[which(names(ObsMelted)=="value")]<-"Obs"
+  ObsMelted$Visit <- as.numeric(gsub("Visit","",ObsMelted$Visit))
+  ObsMelted$VisitID <- paste(ObsMelted$Year,ObsMelted$Site,ObsMelted$Visit,sep="_")
+  
+  #calculate listlength per visit
+  require(plyr)
+  listlengthDF <- ddply(ObsMelted,.(VisitID), summarise, nuSpecies=length(unique(Species[Obs>0])))
+  ObsMelted$L <- listlengthDF$nuSpecies[match(ObsMelted$VisitID,listlengthDF$VisitID)]
 
-#return data frame
-return(Obs)
+  #subset to focal species
+  ObsMeltedS <- subset(ObsMelted,Species==focalSpecies)
+  
+  #restrict to only occurences
+  ObsMeltedS <- subset(ObsMeltedS,L>0)
+  
+  #return data frame 
+  return(ObsMeltedS)
+
 }
