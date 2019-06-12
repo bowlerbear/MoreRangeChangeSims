@@ -13,10 +13,10 @@ Define basic scenario set-up
 ```{r}
 
 #Number of sites in the landscape
-NSites <- 8
+NSites <- 50
 
 #Number of species in the regional pool
-NSpecies <- 4
+NSpecies <- 30
 
 #Number of time points
 NYears <- 5
@@ -28,19 +28,23 @@ Define occupancy settings
 ```{r}
 
 #Define average occupancy of species
+library(boot)
 OccProb <- rep(0.5,NSpecies)
 
 #Define average habitat quality of each site
 Scovariate <- rnorm(NSites)
 
 #Define spatial quality effects
-Seffects <- rep(0,NSpecies)
+Seffects <- rep(0.05,NSpecies)
 
 #Define time trend
-Tcovariate <- 1:NYears
+Tcovariate <- (1:NYears)-mean(1:NYears)
 
 #Define spatial quality effects
-Teffects <- rep(0,NSpecies)
+Teffects <- rep(0.2,NSpecies)
+
+#Interaction beta
+Ieffects <- rep(0,NSpecies)
 
 ```
 
@@ -49,10 +53,16 @@ Define sampling effects
 ```{r}
 
 #Number of visits to each site within each year
-NVisits <- 4
+NVisits <- 5
 
 #Define average detection probability
-DetProb <- 0.5
+DetProb <- 0.2
+
+#detection covariates
+SiteDetEffects <- rep(0,NSpecies)
+YearDetEffects <- rep(0,NSpecies)
+IntDetEffects <- rep(0,NSpecies)
+
 
 ```
 
@@ -74,7 +84,9 @@ source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getOccuH
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getRepeatVisits.R')
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getSpartaFormat.R')
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getBugsData.R')
-source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/runModel.R')
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/runTrendModel.R')
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getModelSummaries.R')
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/plotModelSummaries.R')
 
 ```
 
@@ -84,40 +96,335 @@ Run the simulation steps
 
 #Simulate the occurrences
 runSims <- function(x){
-  Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, spatialcovariates=Scovariate,
-                      temporalbeta=Teffects, temporalcovariates=Tcovariate)
-  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb)
-  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies)
+  Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies,subsetPositive = TRUE)
   bugs.data <- getBugsData(modelData)
   modelSummary <- runModel(bugs.data,modelData,focalSpecies)
+  modelSummary$Type <- "Standard"
   return(modelSummary)
 }
 
 ```
 
-Replicate the simulation 500 times
+Replicate the simulation
+
+```{r, echo=FALSE, results='hide'}
+
+out <- replicate(100,runSims(),simplify=FALSE)
+save(out,file="output/out_standard.RData")
+getModelSummaries(out)
+
+```
+
+Atlas scenarios
+
+(a) Scenario_autocorrelation
 
 ```{r}
 
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/scenario_autocorrelation.R')
+
+
+#Assume species not reported second time it is seen
+runSims <- function(x){
+  Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+ 
+  #apply scenario
+  Obs_auto <- applyAutocorrelation(Obs)
+  Obs_fix <- fixAutocorrelation(Obs_auto)
+  
+  #with original dataset
+  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies)
+  bugs.data <- getBugsData(modelData)
+  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
+  modelSummary$Type <- "Standard"
+  
+  #with fixed dataset
+  modelData_fix <- getSpartaFormat(Obs=Obs_fix,focalSpecies=focalSpecies)
+  bugs.data_fix <- getBugsData(modelData=modelData_fix)
+  modelSummary_fix <- runModel(bugs.data=bugs.data_fix,modelData=modelData_fix,focalSpecies)
+  modelSummary_fix$Type <- "Fixed"
+  
+  return(rbind(modelSummary,modelSummary_fix))
+}
+
+```
+
+Replicate the simulation
+
+```{r, echo=FALSE, results='hide'}
+
 out <- replicate(100,runSims(),simplify=FALSE)
+save(out,file="output/out_scenario_autocorrelation.RData")
+getModelSummaries(out)
+plotSummaries(out)
+
+```
+
+Detect issue
+
+```{r}
+
+Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+Obs <- applyAutocorrelation(Obs)
+modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies,subsetPositive = TRUE)
+  
+
+testAutocorrelation(modelData)
+#test for trap shyness would be better
 
 ```
 
 
-Get simulation summaries
+(b) including new grid cells (potentially lower quality) in atlas years
 
 ```{r}
 
-getModelSummaries <- function(out){
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/scenario_atlassites.R')
+
+runSims <- function(nStandardSites=30,totalN=60){
   
-  outCombined <- do.call(rbind,out)
-  outSummaries <- ddply(outCombined,.(Param),
-                        summarise,
-                        meanValue = mean(mean))
+NSites <- totalN # but all 60 only seen in one year
+Scovariate <- rnorm(NSite)
+      
+  Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+ 
+  #apply scenario
+  Obs_lesssites <- reduceSites(Obs,nStandardSites,samplingBias=TRUE)
+  Obs_biasedsites <- reduceSites(Obs,nStandardSites,samplingBias=FALSE)
   
-  return(outSummaries)
+  #with original dataset
+  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies)
+  bugs.data <- getBugsData(modelData)
+  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
+  modelSummary$Type <- "Standard"
   
+  #with reduced sampling at random
+  modelData_lesssites <- getSpartaFormat(Obs=Obs_lesssites,focalSpecies=focalSpecies)
+  bugs.data_lesssites <- getBugsData(modelData=modelData_lesssites)
+  modelSummary_lesssites <- runModel(bugs.data=bugs.data_lesssites,modelData=modelData_lesssites,focalSpecies)
+  modelSummarylesssites$Type <- "LessSites"
+  
+  #with reduced sampling at biased
+  modelData_biasedsites <- getSpartaFormat(Obs=Obs_biasedsites,focalSpecies=focalSpecies)
+  bugs.data_biasedsites <- getBugsData(modelData=modelData_biasedsites)
+  modelSummary_biasedsites <- runModel(bugs.data=bugs.data_biasedsites,modelData=modelData_biasedsites,focalSpecies)
+  modelSummarybiasedsites$Type <- "Biasedsites"
+  
+  
+  return(rbind(modelSummary,modelSummary_lesssites,modelSummary_biasedsites))
+}
+
+```
+
+(c) Pulse in recording - increased visits in one year
+
+```{r}
+
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/scenario_pulsedvisits.R')
+
+runSims <- function(nStandardVisits=4,maxVisits=10){
+  
+NVisits <- maxVisits
+      
+  Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+ 
+  #apply scenario
+  Obs_lessvisits <- pulsedVisits(Obs,nStandardVisits)
+  
+  #with original dataset
+  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies)
+  bugs.data <- getBugsData(modelData)
+  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
+  modelSummary$Type <- "Standard"
+  
+  #with pulsed visits in atlas year 
+  modelData_lesssites <- getSpartaFormat(Obs=Obs_lesssites,focalSpecies=focalSpecies)
+  bugs.data_lesssites <- getBugsData(modelData=modelData_lesssites)
+  modelSummary_lesssites <- runModel(bugs.data=bugs.data_lesssites,modelData=modelData_lesssites,focalSpecies)
+  modelSummarylesssites$Type <- "LessSites"
+  
+  return(rbind(modelSummary,modelSummary_lesssites))
+}
+
+```
+
+(2) Mismatch between scale of dynamics and observation
+
+```{r}
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/scenario_spatialmismatch.R')
+
+runSims <- function(x){
+   Occ <- getOccuHistory(OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+  Obs <- getRepeatVisits(Occ, NVisits, DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+ 
+ 
+  #apply scenario
+ Obs_grouped <- groupSite(NSites=NSites, Obs=Obs)
+ Obs_reduced <- reduceVisits(Obs=Obs_grouped)
+  
+  #with original dataset
+  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies)
+  bugs.data <- getBugsData(modelData)
+  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
+  modelSummary$Type <- "Standard"
+  
+  #with fixed dataset
+  #modelData_grouped <- getSpartaFormat(Obs=Obs_grouped,focalSpecies=focalSpecies)
+  #bugs.data_grouped <- getBugsData(modelData=modelData_grouped)
+  #modelSummary_grouped <- runModel(bugs.data=bugs.data_grouped,modelData=modelData_grouped,focalSpecies)
+  #modelSummary_grouped$Type <- "grouped"
+  
+  #with fixed dataset
+  modelData_reduced <- getSpartaFormat(Obs=Obs_reduced,focalSpecies=focalSpecies)
+  bugs.data_reduced <- getBugsData(modelData=modelData_reduced)
+  modelSummary_reduced <- runModel(bugs.data=bugs.data_reduced,modelData=modelData_reduced,focalSpecies)
+  modelSummary_reduced$Type <- "Reduced"
+  
+  return(rbind(modelSummary,modelSummary_reduced))
 }
 
 
 ```
+
+Replicate the simulation
+
+```{r, echo=FALSE, results='hide'}
+
+out <- replicate(2,runSims(),simplify=FALSE)
+
+getModelSummaries(out)
+
+```
+
+(3) Effects of habitat degradation on effort
+
+(a) frequency of visits
+
+```{r}
+
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/scenario_frequencyvisits.R')
+
+#sites vary in quality
+#low quality site decline more (year effect is negative, interaction effect is positive)
+#(1) fewer visits in low quality sites
+#(2) number of visits declines over time in low quality sites
+
+#assume probability of NA in any visit decreases with increasing habitat quality
+
+#Assume species not reported second time it is seen
+runSims <- function(siteEffect=1.5){
+  Occ <- getOccuHistory(OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+  Obs <- getRepeatVisits(Occ, NVisits, DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+ 
+  Obs_reduced <- applyReducedVisits(Obs,prVisit=0.5,siteEffect,Scovariate)
+  
+  #with original dataset
+  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies)
+  bugs.data <- getBugsData(modelData)
+  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
+  modelSummary$Type <- "Standard"
+  
+  #with fixed dataset
+  modelData_reduced <- getSpartaFormat(Obs=Obs_reduced,focalSpecies=focalSpecies)
+  bugs.data_reduced <- getBugsData(modelData=modelData_reduced)
+  modelSummary_reduced <- runModel(bugs.data=bugs.data_reduced,modelData=modelData_reduced,focalSpecies)
+  modelSummary_reduced$Type <- "Reduced"
+  
+  return(rbind(modelSummary,modelSummary_reduced))
+}
+
+
+```
+
+Replicate
+
+```{r}
+
+library(plyr)
+out <- llply(c(0.1,0.5,1,1.5,2),function(x)replicate(2,runSims(siteEffect=x),simplify=FALSE))
+out <- do.call(rbind,out)
+getModelSummaries(out)
+ 
+```
+
+(b) Detection probability
+
+```{r}
+
+
+```
+
+
+(4) scenario species number
+
+(a) regional speciesl pool
+
+```{r}
+#Simulate the occurrences
+
+runSims <- function(n=30){
+  
+NSpecies <- n
+ Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+ 
+  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies,subsetPositive = TRUE)
+  bugs.data <- getBugsData(modelData)
+  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
+  modelSummary$Type <- NSpecies
+  
+  return(modelSummary)
+}
+
+```
+
+Replicate
+
+```{r}
+
+library(plyr)
+out <- llply(c(5,10,20,40,80),function(x)replicate(5,runSims(n=x),simplify=FALSE))
+out <- do.call(rbind,out)
+getModelSummaries(out)
+ 
+```
+
+without subsetting to positive
+
+```{r}
+#Simulate the occurrences
+
+runSims <- function(n=30){
+  
+NSpecies <- n
+ Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
+  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
+ 
+  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies,subsetPositive = FALSE)
+  bugs.data <- getBugsData(modelData)
+  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
+  modelSummary$Type <- NSpecies
+  
+  return(modelSummary)
+}
+
+```
+
+Replicate
+
+```{r}
+
+library(plyr)
+out <- llply(c(5,10,20,40,80),function(x)replicate(2,runSims(n=x),simplify=FALSE))
+out <- do.call(rbind,out)
+getModelSummaries(out)
+ 
+```
+
+(b) species pool of specialists
