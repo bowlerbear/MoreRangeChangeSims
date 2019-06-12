@@ -39,7 +39,9 @@
 # }
 ####multiple time slice##########################################################
 
-getRepeatVisits <- function(Occ=Occ, NVisits=NVisits, DetProb=DetProb){
+getRepeatVisits <- function(Occ=Occ, NVisits=NVisits, DetProb=DetProb,
+                            SiteDetEffects,YearDetEffects,IntDetEffects,
+                            Scovariate,Tcovariate){
   
   #melt the array
   require(reshape2)
@@ -53,13 +55,18 @@ getRepeatVisits <- function(Occ=Occ, NVisits=NVisits, DetProb=DetProb){
   
   #detection model
   #linear predictor on logit scale
-  #Occ$lgtDetProb <- apply(Occ, 1, function(x) DetProb + 
+  lgtDetProb <- apply(Occ, 1, function(x) {
+                              logit(DetProb) + 
+                              SiteDetEffects[x["Species"]] * Scovariate[x["Site"]] + 
+                              YearDetEffects[x["Species"]] * Tcovariate[x["Year"]] +  
+                              IntDetEffects[x["Species"]] * Scovariate[x["Site"]] * Scovariate[x["Year"]]
+                            })
 
   #convert into probabilities
-  #DetProb <- 1/(1 + exp(-lgdetProb))
+  Occ$DetProb <- inv.logit(lgtDetProb)
   
   #null model
-  Occ$DetProb <- DetProb
+  #Occ$DetProb <- DetProb
   
   #apply detection probability to each visit - detection prob is constant within a year/site/species
   Obs <- replicate(NVisits,sapply(Occ$DetProb,function(x)rbinom(1,1,x)))

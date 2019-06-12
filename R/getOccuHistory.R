@@ -44,8 +44,8 @@
 
 #####occupancy time series
 
-getOccuHistory <- function(occProb=0, spatialbeta=0, temporalbeta=0, 
-                           temporalcovariates=NULL,spatialcovariates=NULL) {
+getOccuHistory <- function(occProb, spatialbeta, temporalbeta, interactionbeta,
+                           temporalcovariates,spatialcovariates) {
   
   #warnings messages:
   if(length(occProb)==1) warning("same intercept used for all species")
@@ -83,16 +83,18 @@ getOccuHistory <- function(occProb=0, spatialbeta=0, temporalbeta=0,
       for(t in 1:NYears){
         
         #on logit scale
-        lgtPrOcc[s,j,t] <- occProb[s] + 
+        lgtPrOcc[s,j,t] <- logit(occProb[s]) + 
                             spatialcovariates[j]*spatialbeta[s] + 
-                              temporalcovariates[t]*temporalbeta[s]
+                              temporalcovariates[t]*temporalbeta[s] +
+                              spatialcovariates[j]*temporalcovariates[t]*interactionbeta[s]   
         
       }
     }
   }
   
   #convert into probabilities
-  PrOcc <- 1/(1 + exp(-lgtPrOcc))
+  library(boot)
+  PrOcc <-inv.logit(lgtPrOcc)
   
   #perform binomial sampling
   Occ <- apply(PrOcc, c(1,2), function(pr) rbinom(length(pr), 1, pr))

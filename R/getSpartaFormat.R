@@ -5,7 +5,7 @@
 # sparta occupancy model function.
 
 #melt data frame
-getSpartaFormat<-function(Obs,focalSpecies=1){
+getSpartaFormat<-function(Obs,focalSpecies=1,subsetPositive=TRUE){
   
   #melt data frame
   require(reshape2)
@@ -17,14 +17,16 @@ getSpartaFormat<-function(Obs,focalSpecies=1){
   
   #calculate listlength per visit
   require(plyr)
-  listlengthDF <- ddply(ObsMelted,.(VisitID), summarise, nuSpecies=length(unique(Species[Obs>0])))
+  listlengthDF <- ddply(ObsMelted,.(VisitID), summarise, nuSpecies=length(unique(Species[!is.na(Obs)&Obs>0])))
   ObsMelted$L <- listlengthDF$nuSpecies[match(ObsMelted$VisitID,listlengthDF$VisitID)]
 
   #subset to focal species
   ObsMeltedS <- subset(ObsMelted,Species==focalSpecies)
   
   #restrict to only occurences
-  ObsMeltedS <- subset(ObsMeltedS,L>0)
+  if(subsetPositive==T){
+    ObsMeltedS <- subset(ObsMeltedS,L>0)
+  }
   
   #return data frame 
   return(ObsMeltedS)
