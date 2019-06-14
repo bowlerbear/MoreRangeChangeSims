@@ -11,5 +11,19 @@ The aim is to explore the consequences of different types of sampling behaviour 
 
 
 #Scenarios
-(1) Atlas scheme behaviour
+(1) Observer behaviour: atlas schemes
+  - extension of grids (into lower quality areas)
+  - greater effort (higher detection probability, more visits)
+  
+(2) Observer behaviour: habiatt quality effects
+  - decline in the frequency of visits with habitat degradation
+  - more visits initially in more higher quality sites
+  
+(3) Model mispecification
+  - spatial mismatch
+  - heteroegeneity of detection probability
+  - auto-correlation among consecutive visits (trap shyness)
 
+(4) Species/Community properties
+  - regional pool size
+  - specialist species (of species-poor vs species-rich sites)
