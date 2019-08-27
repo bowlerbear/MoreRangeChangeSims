@@ -5,12 +5,14 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+library(boot)
 ```
 
-
-Define basic scenario set-up
+Simulation parameters
 
 ```{r}
+#Define basic scenario set-up
 
 #Number of sites in the landscape
 NSites <- 50
@@ -19,20 +21,15 @@ NSites <- 50
 NSpecies <- 30
 
 #Number of time points
-NYears <- 5
+NYears <- 10
 
-```
-
-Define occupancy settings
-
-```{r}
+#Define occupancy settings
 
 #Define average occupancy of species
-library(boot)
 OccProb <- rep(0.5,NSpecies)
 
 #Define average habitat quality of each site
-Scovariate <- rnorm(NSites)
+Scovariate <- rnorm(NSites,0,1)
 
 #Define spatial quality effects
 Seffects <- rep(0.05,NSpecies)
@@ -43,38 +40,41 @@ Tcovariate <- (1:NYears)-mean(1:NYears)
 #Define spatial quality effects
 Teffects <- rep(0.2,NSpecies)
 
-#Interaction beta
+#Interaction - between space and time
 Ieffects <- rep(0,NSpecies)
 
-```
-
-Define sampling effects
-
-```{r}
+#Define sampling effects:
 
 #Number of visits to each site within each year
 NVisits <- 5
 
 #Define average detection probability
-DetProb <- 0.2
+DetProb <- 0.75
 
 #detection covariates
 SiteDetEffects <- rep(0,NSpecies)
 YearDetEffects <- rep(0,NSpecies)
 IntDetEffects <- rep(0,NSpecies)
 
-
-```
-
-
-Identify focal species
-
-```{r}
-
+#Identify focal species
 focalSpecies=1
 
 ```
 
+Save the parameters and identify simulation run
+
+```{r}
+
+systemTime <- gsub(" ","_", Sys.time(),fixed=TRUE)
+systemTime <- gsub(":","-",systemTime)
+
+parameters <- list(DetProb,focalSpecies,Ieffects,IntDetEffects,NSites,
+                  NSpecies,NVisits,NYears,OccProb,Scovariate,Seffects,SiteDetEffects,
+                  Tcovariate,Teffects,YearDetEffects)
+
+save(parameters,file=paste0("parameters/parameters",systemTime,".RData"))
+
+```
 
 Load in functions
 
@@ -85,34 +85,51 @@ source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getRepea
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getSpartaFormat.R')
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getBugsData.R')
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/runTrendModel.R')
-source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getModelSummaries.R')
-source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/plotModelSummaries.R')
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/helperFunctions.R')
 
 ```
 
-Run the simulation steps
-
-```{r}
-
-#Simulate the occurrences
-runSims <- function(x){
-  Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
-  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
-  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies,subsetPositive = TRUE)
-  bugs.data <- getBugsData(modelData)
-  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
-  modelSummary$Type <- "Standard"
-  return(modelSummary)
-}
-
-```
-
-Replicate the simulation
+Create some replicated worls
 
 ```{r, echo=FALSE, results='hide'}
 
-out <- replicate(100,runSims(),simplify=FALSE)
-save(out,file="output/out_standard.RData")
+Obs <- replicate(10,getSims(),simplify=FALSE)
+getObsSummaries(Obs)
+
+```
+
+Run the basic model
+
+```{r}
+
+out<- lapply(Obs,function(x)getModels(x))
+#save(out,file=paste0("output/out_standard",systemTime,".RData"))
+
+```
+
+Compare real and predicted intercept (psi1) and slope (psi change from last to first)
+
+```{r}
+
+allModels <- do.call(rbind,out)
+
+ggplot(subset(allModels,Param=="first.psi"))+
+  geom_point(aes(x=mean,y=truePsiFirst))
+
+ggplot(subset(allModels,Param=="mean.psi.change"))+
+  geom_point(aes(x=mean,y=truePsiChange))
+
+ggplot(subset(allModels,Param=="odds.psi.change"))+
+  geom_point(aes(x=mean,y=truePsiOdds))
+
+#model does a great job
+
+```
+
+Get summaries over parameters, model types
+
+```{r}
+
 getModelSummaries(out)
 
 ```
@@ -123,41 +140,22 @@ Atlas scenarios
 
 ```{r}
 
+#50% of people(sites do this) behaviour - ask Klaus Jurgen Conze
+
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/scenario_autocorrelation.R')
 
+Obs_auto <- lapply(Obs,function(x)applyAutocorrelation(x,propSites=1))
+getObsSummaries(Obs_auto)
+out <- replicate(100,getModels(Obs_auto,type="Autocorrelated"),simplify=FALSE)
+#save(out,file="output/out_scenario_autocorrelation.RData")
 
-#Assume species not reported second time it is seen
-runSims <- function(x){
-  Occ <- getOccuHistory(occProb = OccProb, spatialbeta=Seffects, interactionbeta=Ieffects, spatialcovariates=Scovariate,temporalbeta=Teffects, temporalcovariates=Tcovariate)
-  Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate)
- 
-  #apply scenario
-  Obs_auto <- applyAutocorrelation(Obs)
-  Obs_fix <- fixAutocorrelation(Obs_auto)
-  
-  #with original dataset
-  modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies)
-  bugs.data <- getBugsData(modelData)
-  modelSummary <- runModel(bugs.data,modelData,focalSpecies)
-  modelSummary$Type <- "Standard"
-  
-  #with fixed dataset
-  modelData_fix <- getSpartaFormat(Obs=Obs_fix,focalSpecies=focalSpecies)
-  bugs.data_fix <- getBugsData(modelData=modelData_fix)
-  modelSummary_fix <- runModel(bugs.data=bugs.data_fix,modelData=modelData_fix,focalSpecies)
-  modelSummary_fix$Type <- "Fixed"
-  
-  return(rbind(modelSummary,modelSummary_fix))
-}
+getModelSummaries(out)
+plotSummaries(out)
 
-```
+Obs_fixed <- fixAutocorrelation(Obs_auto)
+out <- replicate(100,getModels(Obs_fixed,type="Fixed"),simplify=FALSE)
+#save(out,file="output/out_scenario_autocorrelation.RData")
 
-Replicate the simulation
-
-```{r, echo=FALSE, results='hide'}
-
-out <- replicate(100,runSims(),simplify=FALSE)
-save(out,file="output/out_scenario_autocorrelation.RData")
 getModelSummaries(out)
 plotSummaries(out)
 
@@ -221,7 +219,7 @@ Scovariate <- rnorm(NSite)
 
 ```
 
-(c) Pulse in recording - increased visits in one year
+(c) Pulse in recording - increased visits in one year - ** visible in the dragonfly data...
 
 ```{r}
 
@@ -302,7 +300,7 @@ getModelSummaries(out)
 
 ```
 
-(3) Effects of habitat degradation on effort
+(3) Effects of habitat degradation on effort ("car park")
 
 (a) frequency of visits
 
@@ -428,3 +426,9 @@ getModelSummaries(out)
 ```
 
 (b) species pool of specialists
+
+```{r}
+
+
+```
+
