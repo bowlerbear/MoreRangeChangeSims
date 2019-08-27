@@ -9,7 +9,9 @@ runModel <- function(bugs.data,modelData,focalSpecies){
   ni <- 10000   ;   nb <- 2000   ;   nt <- 5   ;   nc <- 3
   
   #specify parameters to monitor
-  params <- c("prop.muZ","prop.p","mean.psi","mean.p","mean.psi.change","psi.fs")
+  params <- c("prop.muZ","prop.p","first.psi","mean.psi","mean.p",
+              "mean.psi.change","odds.psi.change",
+              "psi.fs")
   
   require(reshape2)
   zst <- acast(subset(modelData,Species==focalSpecies), Site~Year, value.var="Obs",fun=max,na.rm=T)
