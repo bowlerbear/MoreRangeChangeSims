@@ -1,8 +1,12 @@
 #apply it
-applyAutocorrelation <- function(Obs,prZero=1){
+applyAutocorrelation <- function(Obs,propSites=0.5){
+  sitesAutocorrelated <- sample(1:NSites,NSites*propSites)
   Obs_auto <- Obs
   for(i in grep("Visit",names(Obs_auto))[-1]){
-    Obs_auto[,i]<-ifelse((Obs_auto[,i]==1 & Obs_auto[,i-1]==1),rbinom(1,1,(1-prZero)),Obs_auto[,i])
+    Obs_auto[,i]<-ifelse((Obs_auto[,i]==1 & 
+                            Obs_auto[,i-1]==1 & 
+                            Obs_auto$Site%in%sitesAutocorrelated),
+                                0,Obs_auto[,i])
   }
   return(Obs_auto)
 }
