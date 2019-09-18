@@ -9,7 +9,7 @@ getSpartaFormat<-function(Obs,focalSpecies=1,subsetPositive=TRUE){
   
   #melt data frame
   require(reshape2)
-  ObsMelted <- melt(Obs,id=c("Year","Species","Site","Occurence","DetProb"))
+  ObsMelted <- melt(Obs,id=names(Obs)[!grepl("Visit",names(Obs))])
   names(ObsMelted)[which(names(ObsMelted)=="variable")]<-"Visit"
   names(ObsMelted)[which(names(ObsMelted)=="value")]<-"Obs"
   ObsMelted$Visit <- as.numeric(gsub("Visit","",ObsMelted$Visit))
