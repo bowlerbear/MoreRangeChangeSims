@@ -1,12 +1,20 @@
 #apply it
-applyAutocorrelation <- function(Obs,propSites=0.5){
+applyAutocorrelation <- function(Obs,propSites,autoProb){
+  
+  #list of sites visited by autocorrelated observers
   sitesAutocorrelated <- sample(1:NSites,NSites*propSites)
+  
   Obs_auto <- Obs
+  Obs_auto$autoSite <- ifelse(Obs_auto$Site %in% sitesAutocorrelated,1,0)
+  #for each visit, find when it was seen twice in a row, 
+  #and if it is a designed autocorrelation site
+  #keep positive observations only with some probability
   for(i in grep("Visit",names(Obs_auto))[-1]){
     Obs_auto[,i]<-ifelse((Obs_auto[,i]==1 & 
                             Obs_auto[,i-1]==1 & 
                             Obs_auto$Site%in%sitesAutocorrelated),
-                                0,Obs_auto[,i])
+                            rbinom(1,1,1-autoProb),
+                            Obs_auto[,i])
   }
   return(Obs_auto)
 }
