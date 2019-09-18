@@ -107,3 +107,38 @@ getOccuHistory <- function(occProb, spatialbeta, temporalbeta, interactionbeta,
   #return to the array
   return(Occ)
 }
+
+#####################################################################################
+
+getAbundHistory <- function(lambda, spatialbeta, temporalbeta, interactionbeta,
+                           temporalcovariates,spatialcovariates) {
+  
+  #linear predictor to relate to predicted expected occurence
+  lgAbund <- array(data=NA,dim=c(NSpecies,NSites,NYears))
+  for(s in 1:NSpecies){
+    for(j in 1:NSites){
+      for(t in 1:NYears){
+        #on logit scale
+        lgAbund[s,j,t] <- log(lambda[s]) + 
+          spatialcovariates[j]*spatialbeta[s] + 
+          temporalcovariates[t]*temporalbeta[s] +
+          spatialcovariates[j]*temporalcovariates[t]*interactionbeta[s]   
+        
+      }
+    }
+  }
+  
+  #convert into probabilities
+  PrAbund <- exp(lgAbund)
+  
+  #perform binomial sampling
+  Abund <- apply(PrAbund, c(1,2), function(pr) sapply(pr,function(x)rpois(1,x)))
+  
+  #rearrange data frame
+  dimnames(Abund)[[1]] <- paste0("Year", 1:NYears)
+  dimnames(Abund)[[2]] <- paste0("Species", 1:NSpecies)
+  dimnames(Abund)[[3]] <- paste0("Site", 1:NSites)
+  
+  #return to the array
+  return(Abund)
+}
