@@ -1,4 +1,4 @@
-runModel <- function(bugs.data,modelData,focalSpecies){
+runModel <- function(bugs.data,modelData,focalSpecies,myModel){
   
   #fit model
   require(rjags)
@@ -6,7 +6,7 @@ runModel <- function(bugs.data,modelData,focalSpecies){
   require(jagsUI)
   
   #define model params
-  ni <- 10000   ;   nb <- 2000   ;   nt <- 5   ;   nc <- 3
+  ni <- 2000   ;   nb <-500   ;   nt <- 5   ;   nc <- 3
   
   #specify parameters to monitor
   params <- c("prop.muZ","prop.p","first.psi","mean.psi","mean.p",
@@ -19,7 +19,7 @@ runModel <- function(bugs.data,modelData,focalSpecies){
   inits <- function(){list(z = zst)}
   
   #run model
-  out <- jags(bugs.data, inits=inits, params, "R/basic_odm.txt", n.thin=nt,
+  out <- jags(bugs.data, inits=inits, params, paste("R",myModel,sep="/"), n.thin=nt,
               n.chains=nc, n.burnin=nb,n.iter=ni,parallel=T,verbose=FALSE)
   
   outSummary <- data.frame(out$summary)
