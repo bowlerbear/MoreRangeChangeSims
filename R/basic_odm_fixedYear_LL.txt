@@ -16,16 +16,15 @@ for (i in 1:nsite){
 for(j in 1:nvisit) {
   y[j] ~ dbern(Py[j])
   Py[j]<- z[site[j],year[j]]*p[j]
-  logit(p[j]) <- alpha.p[year[j]] + eta.p[site[j]]
-  #alpha.p[year[j]]+ beta.L*L[j]
+  logit(p[j]) <- alpha.p[year[j]] + eta.p[site[j]] + beta.L*L[j]
+  #alpha.p[year[j]]
   }
   
- 
 # State model priors
-int.muZ <- logit(prop.muZ)
-prop.muZ ~ dunif(0,1)
 for(t in 1:nyear){
-  a[t] ~ dnorm(int.muZ, tau.a)
+  int.muZ[t] <- logit(prop.muZ[t])
+  prop.muZ[t] ~ dunif(0,1)
+  a[t] ~ dnorm(int.muZ[t], tau.a)
 }
 tau.a <- 1/(sd.a * sd.a)
 sd.a ~ dunif(0,100)
@@ -37,12 +36,11 @@ tau2 <- 1/(sigma2 * sigma2)
 sigma2 ~ dt(0, 1, 1)T(0,) 
   
 # Observation model priors
-int.p <- logit(prop.p)
-prop.p ~ dunif(0,1)
 for (t in 1:nyear) {
-  alpha.p[t] ~ dnorm(int.p, tau.lp)            
+  int.p[t] <- logit(prop.p[t])
+  prop.p[t] ~ dunif(0,1)
+  alpha.p[t] ~ dnorm(int.p[t], tau.lp)            
 }
-#mu.lp ~ dnorm(0, 0.01)
 tau.lp <- 1 / (sd.lp * sd.lp)                 
 sd.lp ~ dunif(0,100) 
 
