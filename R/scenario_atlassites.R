@@ -1,7 +1,8 @@
 reduceSites <- function(Obs, nStandardSites,samplingbias=FALSE){
   
   #decide on atlas year
-  atlasYear <- sample(unique(Obs$Year),1)
+  #atlasYear <- sample(unique(Obs$Year),1)
+  atlasYear <- max(Obs$Year)-1
   
   #assume a random sample of sites are not sampling in all years except one
   if(samplingBias==FALSE){
