@@ -9,7 +9,8 @@ runModel <- function(bugs.data,modelData,focalSpecies,myModel){
   ni <- 2000   ;   nb <-500   ;   nt <- 5   ;   nc <- 3
   
   #specify parameters to monitor
-  params <- c("prop.muZ","prop.p","first.psi","mean.psi","mean.p",
+  params <- c("mean.psi","mean.p",
+              "first.psi","last.psi",
               "mean.psi.change","odds.psi.change",
               "psi.fs")
   
