@@ -1,4 +1,4 @@
-getBugsData <- function(modelData = modelData){
+getBugsData <- function(modelData){
   
   bugs.data <- list(nyear = length(unique(modelData$Year)),
                     nsite = length(unique(modelData$Site)),
@@ -6,7 +6,7 @@ getBugsData <- function(modelData = modelData){
                     year = modelData$Year,
                     site = modelData$Site,
                     y = modelData$Obs,
-                    L = log(modelData$L)-mean(log(modelData$L)),
+                    L = log(modelData$L)-median(log(modelData$L)),
                     nvisit = nrow(modelData))
   
   return(bugs.data)
