@@ -5,7 +5,7 @@
 # sparta occupancy model function.
 
 #melt data frame
-getSpartaFormat<-function(Obs,focalSpecies=1,subsetPositive=TRUE){
+getSpartaFormat<-function(Obs,focalSpecies,subsetPositive){
   
   #melt data frame
   require(reshape2)
