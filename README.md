@@ -1,4 +1,4 @@
-###Simulation Study for occupancy models
+### Simulation Study for occupancy models
 
 This repo contains the code for simulations to explore the robustness of occupancy detection models to different types of human data collection behaviours.
 
@@ -8,7 +8,7 @@ Specifically we aim to:
 - extend the occupancy-models to account for the bias
 - identify additional pieces of metadata that are necessary to fully account for the bias in the model.
 
-###Simulation steps
+### Simulation steps
 The core model file is called "sims_workflow.Rmd".
 
 The steps are the analysis are:
@@ -28,7 +28,7 @@ The steps are the analysis are:
     - estimate true occurrence proportion of a focal species
     - estimate true occurrence change (difference between first and last year) of a focal           species
     
-###Scenarios under consideration so far (additional ideas welcome)
+### Scenarios under consideration so far (additional ideas welcome)
 (a) Atlas schemes
   - extension of grids (into lower quality areas)
   - greater effort (higher detection probability, more visits)
