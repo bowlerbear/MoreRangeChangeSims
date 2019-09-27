@@ -41,7 +41,7 @@
 
 getRepeatVisits <- function(Occ, NVisits, DetProb,
                             SiteDetEffects,YearDetEffects,IntDetEffects,
-                            Scovariate,Tcovariate){
+                            Scovariate,Tcovariate,Noise){
   
   #melt the array
   require(reshape2)
@@ -65,10 +65,13 @@ getRepeatVisits <- function(Occ, NVisits, DetProb,
                               logit(DetProb[x["Species"]]) +
                               SiteDetEffects[x["Species"]] * Scovariate[x["Site"]] + 
                               YearDetEffects[x["Species"]] * Tcovariate[x["Year"]] +  
-                              IntDetEffects[x["Species"]] * Scovariate[x["Site"]] * Tcovariate[x["Year"]]+
-                              x["Noise"]
+                              IntDetEffects[x["Species"]] * Scovariate[x["Site"]] * Tcovariate[x["Year"]]
                             })
-
+  
+  if(Noise==T){
+    lgtDetProb <- lgtDetProb + Occ$Noise
+  }
+  
   #remove Noise variable from the dataframe
   Occ <- Occ[,-which(names(Occ)=="Noise")]
   
@@ -102,7 +105,7 @@ getRepeatVisits <- function(Occ, NVisits, DetProb,
 #assume abundance data
 getRepeatAbundVisits <- function(Abund, NVisits, DetProb,
                             SiteDetEffects,YearDetEffects,IntDetEffects,
-                            Scovariate,Tcovariate){
+                            Scovariate,Tcovariate, Noise){
   
   #melt the array
   require(reshape2)
@@ -125,9 +128,12 @@ getRepeatAbundVisits <- function(Abund, NVisits, DetProb,
       logit(DetProb[x["Species"]]) +
       SiteDetEffects[x["Species"]] * Scovariate[x["Site"]] + 
       YearDetEffects[x["Species"]] * Tcovariate[x["Year"]] +  
-      IntDetEffects[x["Species"]] * Scovariate[x["Site"]] * Tcovariate[x["Year"]]+
-      x["Noise"]
+      IntDetEffects[x["Species"]] * Scovariate[x["Site"]] * Tcovariate[x["Year"]]
   })
+  
+  if(Noise==T){
+    lgtDetProb <- lgtDetProb + Abund$Noise
+  }
   
   #remove Noise variable from the dataframe
   Abund <- Abund[,-which(names(Abund)=="Noise")]
