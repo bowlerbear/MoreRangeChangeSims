@@ -1,8 +1,5 @@
-.Rproj.user
+fixed_interceptonly.png
 .Rhistory
-.RData
-.Ruserdata
-output/*
+.Rproj.user
 R/old/*
 plots/*
-parameters/*
