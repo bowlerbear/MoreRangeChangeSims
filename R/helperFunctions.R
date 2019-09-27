@@ -151,13 +151,11 @@ checkResults <- function(out){
   
   print(ggplot(subset(allModels,Param=="model.change"))+
           geom_point(aes(x=mean,y=truePsiChange))+
-          geom_abline(slope=1,intercept=0)+
-          xlim(0,1)+ylim(0,1))
+          geom_abline(slope=1,intercept=0))
   
   print(ggplot(subset(allModels,Param=="model.odds"))+
           geom_point(aes(x=mean,y=truePsiOdds))+
-          geom_abline(slope=1,intercept=0)+
-          xlim(0,1)+ylim(0,1))
+          geom_abline(slope=1,intercept=0))
   
 }
 
