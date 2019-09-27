@@ -44,37 +44,37 @@
 
 #####occupancy time series
 
-getOccuHistory <- function(occProb, spatialbeta, temporalbeta, interactionbeta,
-                           temporalcovariates,spatialcovariates) {
+getOccuHistory <- function(occProb, Seffects, Teffects, Ieffects,
+                           Tcovariate,Scovariate) {
   
-  #warnings messages:
-  if(length(occProb)==1) warning("same intercept used for all species")
-  
-  if(!is.null(spatialcovariates)) {
-    if(length(spatialbeta)==1) {
-      warning("same spatial slope used for all species")
-    } 
-    else {
-      if(is.vector(spatialcovariates)) { # if only one covariate
-        if(length(spatialbeta)!=length(occProb)) stop("Need as many betas as alphas (= number of species)")
-      } else { #multiple covariates
-        if(ncol(spatialbeta)!=length(occProb)) stop("Need as many beta columns as species")
-      }
-    }
-  }
-  
-  if(!is.null(temporalcovariates)) {
-    if(length(temporalbeta)==1) {
-      warning("same temporal slope used for all species")
-    } 
-    else {
-      if(is.vector(temporalcovariates)) { # if only one covariate
-        if(length(temporalbeta)!=length(occProb)) stop("Need as many betas as alphas (= number of species)")
-      } else {
-        if(ncol(temporalbeta)!=length(occProb)) stop("Need as many beta columns as species")
-      }
-    }
-  }
+  # #warnings messages:
+  # if(length(occProb)==1) warning("same intercept used for all species")
+  # 
+  # if(!is.null(spatialcovariates)) {
+  #   if(length(spatialbeta)==1) {
+  #     warning("same spatial slope used for all species")
+  #   } 
+  #   else {
+  #     if(is.vector(spatialcovariates)) { # if only one covariate
+  #       if(length(spatialbeta)!=length(occProb)) stop("Need as many betas as alphas (= number of species)")
+  #     } else { #multiple covariates
+  #       if(ncol(spatialbeta)!=length(occProb)) stop("Need as many beta columns as species")
+  #     }
+  #   }
+  # }
+  # 
+  # if(!is.null(temporalcovariates)) {
+  #   if(length(temporalbeta)==1) {
+  #     warning("same temporal slope used for all species")
+  #   } 
+  #   else {
+  #     if(is.vector(temporalcovariates)) { # if only one covariate
+  #       if(length(temporalbeta)!=length(occProb)) stop("Need as many betas as alphas (= number of species)")
+  #     } else {
+  #       if(ncol(temporalbeta)!=length(occProb)) stop("Need as many beta columns as species")
+  #     }
+  #   }
+  # }
   
   #linear predictor to relate to predicted expected occurence
   lgtPrOcc <- array(data=NA,dim=c(NSpecies,NSites,NYears))
@@ -83,10 +83,10 @@ getOccuHistory <- function(occProb, spatialbeta, temporalbeta, interactionbeta,
       for(t in 1:NYears){
         
         #on logit scale
-        lgtPrOcc[s,j,t] <- logit(occProb[s]) + 
-                            spatialcovariates[j]*spatialbeta[s] + 
-                              temporalcovariates[t]*temporalbeta[s] +
-                              spatialcovariates[j]*temporalcovariates[t]*interactionbeta[s]   
+        lgtPrOcc[s,j,t] <- logit(OccProb[s]) + 
+                            Scovariate[j]* Seffects[s] + 
+                              Tcovariate[t] * Teffects[s] +
+                              Scovariate[j] * Tcovariate[t] * Ieffects[s]   
         
       }
     }
@@ -110,8 +110,8 @@ getOccuHistory <- function(occProb, spatialbeta, temporalbeta, interactionbeta,
 
 #####################################################################################
 
-getAbundHistory <- function(lambda, spatialbeta, temporalbeta, interactionbeta,
-                           temporalcovariates,spatialcovariates) {
+getAbundHistory <- function(lambda, Seffects, Teffects, Ieffects,
+                            Tcovariate,Scovariate) {
   
   #linear predictor to relate to predicted expected occurence
   lgAbund <- array(data=NA,dim=c(NSpecies,NSites,NYears))
@@ -120,9 +120,9 @@ getAbundHistory <- function(lambda, spatialbeta, temporalbeta, interactionbeta,
       for(t in 1:NYears){
         #on logit scale
         lgAbund[s,j,t] <- log(lambda[s]) + 
-          spatialcovariates[j]*spatialbeta[s] + 
-          temporalcovariates[t]*temporalbeta[s] +
-          spatialcovariates[j]*temporalcovariates[t]*interactionbeta[s]   
+          Scovariate[j]*Seffects[s] + 
+          Tcovariate[t]*Teffects[s] +
+          Scovariate[j]*Tcovariate[t]*Ieffects[s]    
         
       }
     }
