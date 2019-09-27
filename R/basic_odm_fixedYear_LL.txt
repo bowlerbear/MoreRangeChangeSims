@@ -1,58 +1,48 @@
 model{
- # JAGS code for SPARTA model plus random walk prior
-# on the year effect of the state model + intercept + halfcauchy hyperpriors
 
 # State model
 for (i in 1:nsite){ 
   for (t in 1:nyear){   
     z[i,t] ~ dbern(muZ[i,t]) 
-    logit(muZ[i,t]) <- a[t] + eta[i]
-    #a[t] 
+    logit(muZ[i,t]) <- logit.a[t] + eta[i]
   }}   
   
   
-
 # Observation Model
 for(j in 1:nvisit) {
   y[j] ~ dbern(Py[j])
   Py[j]<- z[site[j],year[j]]*p[j]
   logit(p[j]) <- alpha.p[year[j]] + eta.p[site[j]] + beta.L*L[j]
-  #alpha.p[year[j]]
   }
   
 # State model priors
 for(t in 1:nyear){
-  int.muZ[t] <- logit(prop.muZ[t])
-  prop.muZ[t] ~ dunif(0,1)
-  a[t] ~ dnorm(int.muZ[t], tau.a)
+  a[t] ~ dunif(0,1)
+  logit.a[t] <- logit(a[t])
 }
-tau.a <- 1/(sd.a * sd.a)
-sd.a ~ dunif(0,100)
-  
+
+#residual sampling
 for (i in 1:nsite) {
   eta[i] ~ dnorm(0, tau2)       
 } 
 tau2 <- 1/(sigma2 * sigma2) 
-sigma2 ~ dt(0, 1, 1)T(0,) 
-  
+sigma2 ~ dunif(0,10) 
+
 # Observation model priors
 for (t in 1:nyear) {
-  int.p[t] <- logit(prop.p[t])
   prop.p[t] ~ dunif(0,1)
-  alpha.p[t] ~ dnorm(int.p[t], tau.lp)            
+  alpha.p[t] <- logit(prop.p[t])
 }
-tau.lp <- 1 / (sd.lp * sd.lp)                 
-sd.lp ~ dunif(0,100) 
-
-#effect of listlength  
-beta.L ~ dnorm(0, 0.0001)
 
 #site p effects
 for (i in 1:nsite) {
   eta.p[i] ~ dnorm(0, taup2)       
 } 
 taup2 <- 1/(sigmap2 * sigmap2) 
-sigmap2 ~ dt(0, 1, 1)T(0,) 
+sigmap2 ~ dunif(0,10)
+
+#effect of listlength  
+beta.L ~ dnorm(0, 0.001)
 
 # Derived parameters
 for (t in 1:nyear) {  
@@ -62,15 +52,15 @@ for (t in 1:nyear) {
 #calculate mean occupancy
 mean.psi <- mean(psi.fs)
 
-#initial occupancy
-first.psi <- psi.fs[1]
+#initial occupancy - on probability scale
+first.psi <- a[1]
+last.psi <- a[nyear]
 
 #get mean change in occupancy
 mean.psi.change <- psi.fs[nyear] - psi.fs[1]
 
-#log change in occupancy
-e <- 0.00000001
-odds.psi.change <- ((psi.fs[nyear]+e)/(1-(psi.fs[nyear]+e)))/((psi.fs[1]+e)/(1-(psi.fs[1]+e)))
+#log odds change in occupancy
+odds.psi.change <- logit.a[nyear] - logit.a[1]
 
 #calculate mean detection probability
 mean.p <- mean(p) 

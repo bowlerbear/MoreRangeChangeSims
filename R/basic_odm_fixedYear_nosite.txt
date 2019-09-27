@@ -4,7 +4,8 @@ model{
 for (i in 1:nsite){ 
   for (t in 1:nyear){   
     z[i,t] ~ dbern(muZ[i,t]) 
-    logit(muZ[i,t]) <- logit.a[t] + eta[i]
+    logit(muZ[i,t]) <- logit.a[t] 
+    #+ eta[i]
   }}   
   
   
@@ -13,7 +14,8 @@ for (i in 1:nsite){
 for(j in 1:nvisit) {
   y[j] ~ dbern(Py[j])
   Py[j]<- z[site[j],year[j]]*p[j]
-  logit(p[j]) <- alpha.p[year[j]] + eta.p[site[j]]  
+  logit(p[j]) <- alpha.p[year[j]] 
+  #+ eta.p[site[j]] 
   }
   
 # State model priors
@@ -27,7 +29,7 @@ for (i in 1:nsite) {
   eta[i] ~ dnorm(0, tau2)       
 } 
 tau2 <- 1/(sigma2 * sigma2) 
-sigma2 ~ dunif(0,100) 
+sigma2 ~ dunif(0,10) 
   
 # Observation model priors
 for (t in 1:nyear) {
@@ -40,7 +42,7 @@ for (i in 1:nsite) {
   eta.p[i] ~ dnorm(0, taup2)       
 } 
 taup2 <- 1/(sigmap2 * sigmap2) 
-sigmap2 ~ dunif(0,100)
+sigmap2 ~ dunif(0,10)
 
 #effect of listlength  
 beta.L ~ dnorm(0, 0.001)
@@ -58,7 +60,7 @@ first.psi <- a[1]
 last.psi <- a[nyear]
 
 #get mean change in occupancy
-mean.psi.change <- psi.fs[nyear] - psi.fs[1]
+mean.psi.change <- a[nyear]/a[1]
 
 #log odds change in occupancy
 odds.psi.change <- logit.a[nyear] - logit.a[1]
