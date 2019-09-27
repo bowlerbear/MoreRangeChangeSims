@@ -9,93 +9,22 @@ knitr::opts_chunk$set(echo = TRUE)
 library(boot)
 library(ggplot2)
 
-#To do
-
-#do sampling as abundance model
-#sites/years vary by detection probability
-#last occupancy year
-#compare with analysis of raw data....simple binomial GLM
-
 ```
 
-Simulation parameters
+Get parameter file and time stamp
 
 ```{r}
-#Define basic scenario set-up
 
-#set.seed(2)
+rm(list=ls())
 
-#Number of sites in the landscape
-NSites <- 50
+parameterDF <- read.csv("C:/Users/db40fysa/Desktop/parameters_moreRangeChangeSims.csv")
+#parameteDF is a file with the list of the all the parameters and their values for each simulation run
 
-#Number of species in the regional pool
-NSpecies <- 30
-
-#Number of time points
-NYears <- 10
-
-#Define occupancy settings
-
-#Define average occupancy of species
-#OccProb <- rep(0.3,NSpecies)
-lambda <- rep(1, NSpecies)
-OccProb <- rnorm(NSpecies,0.3,0.1)#allow for species-level variation
-#lambda <- rlnorm(NSpecies,0.1,0.05)#allow for species-level variation
-
-#Define average habitat quality of each site
-Scovariate <- rnorm(NSites,0,1)
-
-#Define spatial quality effects
-Seffects <- rep(0,NSpecies)
-#Seffects <- rnorm(NSpecies,0.05,0.01)#allow for species-level variation
-
-#Define time trend
-Tcovariate <- (1:NYears)-mean(1:NYears)
-
-#Define spatial quality effects
-Teffects <- rep(0,NSpecies)
-#Teffects <- rnorm(NSpecies,0.05,0.01)#allow for species-level variation
-
-#Interaction - between space and time
-Ieffects <- rep(0,NSpecies)
-
-#Define sampling effects:
-
-#Number of visits to each site within each year
-NVisits <- 5
-
-#Define average detection probability
-DetProb <- rep(0.3,NSpecies)
-#DetProb <- rnorm(NSpecies,0.3,0.1)#allow for species-level variation
-
-#Assume changes in effort affect all species similarly
-#Detection covariates
-SiteDetEffects <- rep(0,NSpecies)
-YearDetEffects <- rep(0,NSpecies)
-IntDetEffects <- rep(0,NSpecies)
-
-#Identify focal species
-focalSpecies=1
-
-#model type
-#myModel = "basic_odm.txt"
-myModel = "basic_odm_Interceptonly.txt"
-#myModel = "basic_odm_fixedYear.txt"
-#myModel = "basic_odm_fixedYear_LL.txt"
-```
-
-Save the parameters and identify simulation run
-
-```{r}
+#decie on which run
+type=2
 
 systemTime <- gsub(" ","_", Sys.time(),fixed=TRUE)
 systemTime <- gsub(":","-",systemTime)
-
-parameters <- list(DetProb,focalSpecies,Ieffects,IntDetEffects,NSites,
-                  NSpecies,NVisits,NYears,OccProb,Scovariate,Seffects,SiteDetEffects,
-                  Tcovariate,Teffects,YearDetEffects,myModel)
-
-save(parameters,file=paste0("parameters/parameters",systemTime,".RData"))
 
 ```
 
@@ -103,6 +32,7 @@ Load in functions
 
 ```{r}
 
+source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getParams.R')
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getOccuHistory.R')
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getRepeatVisits.R')
 source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/getSpartaFormat.R')
@@ -112,11 +42,12 @@ source('C:/Users/db40fysa/Nextcloud/sMon-Analyses/MoreRangeChangeSims/R/helperFu
 
 ```
 
+
 Create some replicated worlds
 
 ```{r, echo=FALSE, results='hide'}
 
-Obs <- replicate(50,getSims(),simplify=FALSE)
+Obs <- replicate(50,getSims(mysimNu=type),simplify=FALSE)
 getObsSummaries(Obs)
 
 ```
@@ -125,8 +56,8 @@ Run the basic model
 
 ```{r, message=FALSE, warning=FALSE}
 
-out<- lapply(Obs,function(x)getModels(x))
-#save(out,file=paste0("output/out_standard",systemTime,".RData"))
+out<- lapply(Obs,function(x)getModels(x,type=type))
+#save(out,file=paste0("output/out_",type,"_",systemTime,".RData"))
 
 ```
 
@@ -135,24 +66,7 @@ Compare real and predicted intercept (psi1) and slope (psi change from last to f
 ```{r}
 
 checkResults(out)
-saveResults(out,type="fixed_interceptonly")
-#occurrence simulation (yearEffects model)
-#works fine, with zeros on all covariate effects
-#works with 0.1 on occupancy and detection time effects
-#works with 0.1 on occupancy and detection spatial effects
 
-#abundance simulation
-#works with fixed lambda and det prob/intercept only model
-#works fine with time trend and FixedYear model
-
-
-#abundance simulation (yearEffects model)
-#with zeros on all covariate effects
-#overestimates trend with time effect
-
-#abundance (yearEffects_LL model)
-#with time trend, sort of works
-#with time trend and spatial effect, sort of works
 ```
 
 Get summaries over parameters, model types
@@ -163,11 +77,12 @@ print(modelSummaries <- getModelSummaries(out))
 
 ```
 
-Compare the analysis fo raw Data
+Compare to the analysis of raw data
 
 ```{r, message=FALSE, warning=FALSE}
 
 outRaw<- ldply(Obs,function(x)rawdataAnalysis(x))
+#save(outRaw,file=paste0("output/outRaw_",type,"_",samplingType,"_",systemTime,".RData"))
 rawSummaries <- getrawSummaries(outRaw)
 
 ```
@@ -180,7 +95,18 @@ plotComparison(modelSummaries,rawSummaries)
 
 ```
 
+plot comparison of differences
+```{r}
+plotDifference(out,outRaw)
 
+```
+
+plot se of change
+```{r}
+
+plotSE(out,outRaw)
+
+```
 
 Atlas scenarios
 
