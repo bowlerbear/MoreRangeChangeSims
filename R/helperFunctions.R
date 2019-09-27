@@ -205,14 +205,17 @@ plotComparison <- function(modelSummaries,rawSummaries){
       "odds"
     }else if (grepl("last",x)){
       "last occ"
-    }else {
+    }else if (grepl("first",x)){
+      "first occ"
+    } else {
       "change"
     }}))
   
-  temp$model <- c("OD","OD","OD","truth","truth","truth","naive","naive","naive")
+  temp$model <- c("OD","OD","OD","OD","truth","truth","truth","truth",
+                  "naive","naive","naive","naive")
   
   temp$model <- factor(temp$model, levels=c("truth","naive","OD"))
-  temp$type <- factor(temp$type, levels=c("last occ","change","odds"))
+  temp$type <- factor(temp$type, levels=c("first occ","last occ","change","odds"))
   
   print(ggplot(temp)+
           geom_crossbar(aes(x=model,y=medianQ,ymin=lowerQ,ymax=upperQ),width=0.4)+
@@ -266,10 +269,10 @@ plotDifference <- function(out,outRaw){
   
   #first occupancy
   firstData <- subset(outCombined,Param=="model.first")
-  firstData$basic.last <- outRaw$lmerPsiFirst
+  firstData$basic.first <- outRaw$lmerPsiFirst
   names(firstData)[which(names(firstData)=="mean")] <- "model.first"
   firstData$model_vs_true <- firstData$model.first - firstData$truePsiFirst
-  firstData$basic_vs_true <- firsttData$basic.first - firstData$truePsiFirst
+  firstData$basic_vs_true <- firstData$basic.first - firstData$truePsiFirst
   
   #last occupancy
   lastData <- subset(outCombined,Param=="model.last")
@@ -305,7 +308,7 @@ plotDifference <- function(out,outRaw){
   
   
   #combine all
-  df <- rbind(lastDataM,changeDataM,oddsDataM)
+  df <- rbind(firstDataM,lastDataM,changeDataM,oddsDataM)
   names(df)[1:2] <- c("Comparison","Difference")
   df$Param <- factor(df$Param, levels=c("first","last","change","odds"))
   require(ggplot2)
