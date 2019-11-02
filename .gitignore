@@ -3,3 +3,4 @@ fixed_interceptonly.png
 .Rproj.user
 R/old/*
 plots/*
+output/*
