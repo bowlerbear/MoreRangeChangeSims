@@ -64,6 +64,18 @@ getParams <- function(parameterDF,mysimNu){
   #Identify focal species
   focalSpecies <<- temp$focalSpecies
   
+  #for focal species, set to fixed parameters
+  OccProb[focalSpecies] <<- temp$meanOccProb
+  lambda[focalSpecies] <<- temp$meanLambda
+  Seffects[focalSpecies] <<- temp$meanSeffects
+  Teffects[focalSpecies] <<- temp$meanTeffects
+  Ieffects[focalSpecies] <<- temp$meanIeffects
+  DetProb[focalSpecies] <<- temp$meanDetProb 
+  SiteDetEffects[focalSpecies] <<- temp$meanSiteDetEffects
+  YearDetEffects[focalSpecies] <<- temp$meanYearDetEffects
+  IntDetEffects[focalSpecies] <<- temp$meanIntDetEffects
+  
+  
   #model type
   myModel <<- temp$myModel
   
