@@ -11,6 +11,7 @@ getSims <- function(mysimNu){
                           Tcovariate,Scovariate)
     Obs <- getRepeatVisits(Occ=Occ, NVisits=NVisits, DetProb = DetProb, SiteDetEffects,YearDetEffects,IntDetEffects, Scovariate,Tcovariate,Noise)
     return(Obs)
+    
   } else if(samplingType=="Abundance"){
     Abund <- getAbundHistory(lambda = lambda, Seffects, Teffects, Ieffects,
                              Tcovariate,Scovariate)
@@ -20,45 +21,88 @@ getSims <- function(mysimNu){
   
 }
 
+
 getModels <- function(Obs,type=1){
   
   modelData <- getSpartaFormat(Obs,focalSpecies,subsetPositive)
   bugs.data <- getBugsData(modelData)
   modelSummary <- runModel(bugs.data,modelData,focalSpecies,myModel)
   modelSummary$Type <- type
-  
-  #get actual change
-  e <- 0.00000001
-  modelSummary$truePsiFirst <- mean(Obs$Occurence[Obs$Year==min(Obs$Year) & Obs$Species==focalSpecies])
-  modelSummary$truePsiLast <- mean(Obs$Occurence[Obs$Year==max(Obs$Year) & Obs$Species==focalSpecies])
-  modelSummary$truePsiChange <- modelSummary$truePsiLast/modelSummary$truePsiFirst 
-  modelSummary$truePsiOdds <- log((modelSummary$truePsiLast)/(1-modelSummary$truePsiLast))/((modelSummary$truePsiFirst)/(1-modelSummary$truePsiFirst))
-  
+
   return(modelSummary)
 }
+
 
 ####simulation summaries###############################################################################
 
 getObsSummaries <- function(df){
   require(plyr)
   
-  
   #summaries per simulation
   perSim <- ldply(df,summarise,
-                  #year1
-                  Occ_year1 = mean(Occurence[Year==min(Year)]),
-                  Occ_focal_year1 = mean(Occurence[Species==focalSpecies & Year==min(Year)]),
-                  Obs_year1 = mean(Visit1[Year==min(Year)]),
-                  Obs_focal_year1 = mean(Visit1[Species==focalSpecies & Year==min(Year)]),
                   
-                  #last year
+                  #true occurence
+                  Occ_year1 = mean(Occurence[Year==min(Year)]),
                   Occ_last = mean(Occurence[Year==max(Year)]),
+                
+                  #true occurence of focal species
+                  Occ_focal_year1 = mean(Occurence[Species==focalSpecies & Year==min(Year)]),
                   Occ_focal_last = mean(Occurence[Species==focalSpecies & Year==max(Year)]),
+                  
+                  #observation of all species
+                  Obs_year1 = mean(Visit1[Year==min(Year)]),
                   Obs_last = mean(Visit1[Year==max(Year)]),
-                  Obs_focal_last = mean(Visit1[Species==focalSpecies & Year==max(Year)]))
+                  
+                  #observation of focal species
+                  Obs_focal_year1 = mean(Visit1[Species==focalSpecies & Year==min(Year)]),
+                  Obs_focal_last = mean(Visit1[Species==focalSpecies & Year==max(Year)]),
+  
+                  #how many have all zeros
+                  Occ_Zeros = all(Occurence==0),
+                  Occ_Ones = all(Occurence==1))
   
   #summary overall
   colMeans(perSim)
+  
+}
+
+
+combineObs <- function(x){
+  
+  temp <- ldply(x, function(x){
+        
+  focalDF <- subset(x,Species==focalSpecies)
+  
+  #trend estimate
+  focalDFSummary <- ddply(focalDF,.(Year),summarise,nuSites=sum(Occurence))
+  true.trend <- lm(nuSites/NSites ~ Year,data=focalDFSummary)$coef[2]
+
+  true.first <- mean(x$Occurence[x$Year==min(x$Year) & x$Species==focalSpecies])
+  true.last <- mean(x$Occurence[x$Year==max(x$Year) & x$Species==focalSpecies])
+  true.change <- (true.last-true.first)/true.first 
+  true.odds <- log((true.last/(1-true.last))/(true.first/(1-true.first)))
+  
+  return(data.frame(true.first,true.last,true.change,true.odds,true.trend))
+  })
+  
+  return(temp)
+  
+  }
+
+
+gettrueSummaries <- function(x){
+  
+  require(reshape2)
+  temp <- melt(x)
+  
+  outTrueSummary <- ddply(temp,.(variable),summarise,
+                         lowerQ = quantile(value,0.25),
+                         medianQ = quantile(value,0.5),
+                         upperQ = quantile(value,0.75))
+  
+  names(outTrueSummary)[1] <- "Param"
+  
+  return(outTrueSummary)
   
 }
 
@@ -70,63 +114,84 @@ rawdataAnalysis <- function(Obs){
   modelData <- getSpartaFormat(Obs,focalSpecies=focalSpecies,subsetPositive = TRUE)
   
   #glmer - mixed effect model
-  e <- 0.00000001
   require(lme4)
   #transform into probabilities
   require(boot)
-  
-  lmer1 <- glmer(Obs ~ (factor(Year)-1)+(1|Site),data=subset(modelData,!is.na(Obs)),
+  e <- 0.00000001
+
+    
+    lmer1 <- glmer(Obs ~ (factor(Year)-1)+(1|Site),data=subset(modelData,!is.na(Obs)),
                  family=binomial)
   
-  #first and last
-  lmerPsiFirst <- summary(lmer1)$coefficients[1,1]
-  lmerPsiFirst_se <- summary(lmer1)$coefficients[1,2]
-  len <- nrow(summary(lmer1)$coefficients)
-  lmerPsiLast <- summary(lmer1)$coefficients[len,1]
-  lmerPsiLast_se <- summary(lmer1)$coefficients[(nrow(summary(lmer1)$coefficients)),2]
-  
-  #change parameters
-  lmerPsiOdds <- lmerPsiLast - lmerPsiFirst
-  lmerPsiOdds_se <- sqrt(lmerPsiLast_se^2 + lmerPsiFirst_se^2)
-  
-  #estimate se using delta method
-  require(msm)
-  lmerPsiFirst_se <- deltamethod(~ exp(x1)/(1+exp(x1)), lmerPsiFirst, vcov(lmer1)[1,1])
-  lmerPsiLast_se <- deltamethod(~ exp(x1)/(1+exp(x1)), lmerPsiLast, vcov(lmer1)[len,len])
-  
-  #change first and last into probability
-  lmerPsiFirst <- inv.logit(lmerPsiFirst)
-  lmerPsiLast <- inv.logit(lmerPsiLast)
-  lmerPsiChange <- lmerPsiLast/lmerPsiFirst
-  
-  temp <- data.frame(lmerPsiFirst,lmerPsiLast,lmerPsiChange,lmerPsiOdds,
-                     lmerPsiFirst_se,lmerPsiLast_se,lmerPsiOdds_se)
-  
-  return(temp)
+    #extract output
+    
+    #first and last
+    lmerPsi_First <- summary(lmer1)$coefficients[1,1]
+    lmerPsi_First_se <- summary(lmer1)$coefficients[1,2]
+    len <- nrow(summary(lmer1)$coefficients)
+    lmerPsi_Last <- summary(lmer1)$coefficients[len,1]
+    lmerPsi_Last_se <- summary(lmer1)$coefficients[(nrow(summary(lmer1)$coefficients)),2]
+    
+    #change parameters
+    lmerPsi_Odds <- lmerPsi_Last - lmerPsi_First
+    lmerPsi_Odds_se <- sqrt(lmerPsi_Last_se^2 + lmerPsi_First_se^2)
+    
+    #estimate se using delta method
+    require(msm)
+    lmerPsi_First_se <- deltamethod(~ exp(x1)/(1+exp(x1)), lmerPsi_First, vcov(lmer1)[1,1])
+    lmerPsi_Last_se <- deltamethod(~ exp(x1)/(1+exp(x1)), lmerPsi_Last, vcov(lmer1)[len,len])
+    
+    #change first and last into probability
+    lmerPsi_First <- inv.logit(lmerPsi_First)
+    lmerPsi_Last <- inv.logit(lmerPsi_Last)
+    lmerPsi_Change <- (lmerPsi_Last-lmerPsi_First)/lmerPsi_First
+    
+    temp <- data.frame(raw.first=lmerPsi_First,
+                       raw.last=lmerPsi_Last,
+                       raw.change=lmerPsi_Change,
+                       raw.odds=lmerPsi_Odds)
+                       #raw.first.se=lmerPsi_First_se,
+                       #raw.last.se=lmerPsi_Last_se,
+                       #raw.odds.se=lmerPsi_Odds_se)
+    
+    #simple trend model
+    
+    #trend in proportion of sites occupied??
+    
+    lmer1 <- glmer(Obs ~ Year+(1|Site),data=subset(modelData,!is.na(Obs)),
+                   family=binomial)
+
+    lmerPsi_trend <- summary(lmer1)$coefficients[2,1]
+    lmerPsi_trend_se <- summary(lmer1)$coefficients[2,2]
+    lmerPsi_trend_z <- summary(lmer1)$coefficients[2,3]
+    lmerPsi_trend_sig <- summary(lmer1)$coefficients[2,4]
+    
+    temp2 <- data.frame(raw.trend=lmerPsi_trend,
+                       raw.Ztrend=lmerPsi_trend_z,
+                       raw.Sigtrend=lmerPsi_trend_sig)
+    
+
+  return(cbind(temp,temp2))
 }
+
+#also add a raw poisson analysis################
 
 getrawSummaries <- function(outRaw){
-  Param <- c("basic.mean","basic.odds","basic.last","basic.first")
-  lowerQ <- c(quantile(outRaw$lmerPsiChange,0.25),
-              quantile(outRaw$lmerPsiOdds,0.25),
-              quantile(outRaw$lmerPsiLast,0.25),
-              quantile(outRaw$lmerPsiFirst,0.25))
   
-  medianQ <- c(quantile(outRaw$lmerPsiChange,0.5),
-               quantile(outRaw$lmerPsiOdds,0.5),
-               quantile(outRaw$lmerPsiLast,0.5),
-               quantile(outRaw$lmerPsiFirst,0.5))
+  require(reshape2)
+  outRawMelted <- melt(outRaw)
+  outRawSummary <- ddply(outRawMelted,.(variable),summarise,
+                         lowerQ = quantile(value,0.25),
+                         medianQ = quantile(value,0.5),
+                         upperQ = quantile(value,0.75))
   
-  upperQ <- c(quantile(outRaw$lmerPsiChange,0.75),
-              quantile(outRaw$lmerPsiOdds,0.75),
-              quantile(outRaw$lmerPsiLast,0.75),
-              quantile(outRaw$lmerPsiFirst,0.75))
+  names(outRawSummary)[1] <- "Param"
   
-  data.frame(Param,lowerQ,medianQ,upperQ)
+  return(outRawSummary)
   
 }
 
-###comparing results###############################################################################
+###combining models###############################################################################
 
 combineOut <- function(out){
   
@@ -135,27 +200,49 @@ combineOut <- function(out){
   outCombined$Param[which(outCombined$Param=="last.psi")] <- "model.last"
   outCombined$Param[which(outCombined$Param=="mean.psi.change")] <- "model.change"
   outCombined$Param[which(outCombined$Param=="odds.psi.change")] <- "model.odds"
+  outCombined$Param[which(outCombined$Param=="regres.psi")] <- "model.trend"
+  
+  #add simulation number
+  j = 0
+  outCombined$simRep <- NA
+  for(i in 1:length(outCombined$Param)){
+    j = ifelse(outCombined$Param[i]=="mean.psi",j+1,j)
+    outCombined$simRep[i] <- j
+  }
+  
   return(outCombined)
   
 }
 
-checkResults <- function(out){
+###compare results##########################################################################
+
+checkResults <- function(out,Obs){
   
   allModels <- combineOut(out)
-  #allModels <- subset(allModels,Rhat<1.1)
+  allTruth <- combineObs(Obs)
   
-  print(ggplot(subset(allModels,Param=="model.last"))+
-          geom_point(aes(x=mean,y=truePsiLast))+
+  temp <- subset(allModels,Param=="model.last")
+  temp <- cbind(temp,allTruth)
+  g1 <- ggplot(temp)+
+          geom_point(aes(x=mean,y=true.last))+
           geom_abline(slope=1,intercept=0)+
-          xlim(0,1)+ylim(0,1))
+          xlim(0,1)+ylim(0,1)
   
-  print(ggplot(subset(allModels,Param=="model.change"))+
-          geom_point(aes(x=mean,y=truePsiChange))+
-          geom_abline(slope=1,intercept=0))
+  temp <- subset(allModels,Param=="model.change")
+  temp <- cbind(temp,allTruth)
+  g2<- ggplot(temp)+
+          geom_point(aes(x=mean,y=true.change))+
+          geom_abline(slope=1,intercept=0)
   
-  print(ggplot(subset(allModels,Param=="model.odds"))+
-          geom_point(aes(x=mean,y=truePsiOdds))+
-          geom_abline(slope=1,intercept=0))
+  temp <- subset(allModels,Param=="model.odds")
+  temp <- cbind(temp,allTruth)
+  g3 <- ggplot(temp)+
+          geom_point(aes(x=mean,y=true.odds))+
+          geom_abline(slope=1,intercept=0)
+  
+  print(g1)
+  print(g2)
+  print(g3)
   
 }
 
@@ -165,57 +252,24 @@ getModelSummaries <- function(out){
   outCombined <- combineOut(out)
   
   outSummaries <- subset(outCombined,Param %in%c ("model.change","model.odds",
-                                                  "model.last","model.first"))
+                                                  "model.last","model.first",
+                                                  "model.trend"))
   outSummaries <- ddply(outSummaries,.(Param),summarise,
                         lowerQ=quantile(mean,0.25),
                         medianQ=quantile(mean,0.5),
                         upperQ=quantile(mean,0.75))
   
-  #get raw data
-  Param <- c("raw.mean","raw.odds","raw.last","raw.first")
-  lowerQ <- c(quantile(outCombined$truePsiChange[outCombined$Param=="model.change"],0.25),
-              quantile(outCombined$truePsiOdds[outCombined$Param=="model.odds"],0.25),
-              quantile(outCombined$truePsiLast[outCombined$Param=="model.last"],0.25),
-              quantile(outCombined$truePsiFirst[outCombined$Param=="model.first"],0.25))
-  
-  medianQ <- c(quantile(outCombined$truePsiChange[outCombined$Param=="model.change"],0.5),
-               quantile(outCombined$truePsiOdds[outCombined$Param=="model.odds"],0.5),
-               quantile(outCombined$truePsiLast[outCombined$Param=="model.last"],0.5),
-               quantile(outCombined$truePsiFirst[outCombined$Param=="model.first"],0.5))
-  
-  upperQ <- c(quantile(outCombined$truePsiChange[outCombined$Param=="model.change"],0.75),
-              quantile(outCombined$truePsiOdds[outCombined$Param=="model.odds"],0.75),
-              quantile(outCombined$truePsiLast[outCombined$Param=="model.last"],0.75),
-              quantile(outCombined$truePsiFirst[outCombined$Param=="model.first"],0.75))
-  
-  rawDF <- data.frame(Param,lowerQ,medianQ,upperQ)
-  
-  return(rbind(outSummaries,rawDF))
+  return(outSummaries)
 }
 
 
 
-plotComparison <- function(modelSummaries,rawSummaries){
+plotComparison <- function(modelSummaries,rawSummaries,trueSummaries){
   
-  temp <- rbind(modelSummaries,rawSummaries)
-  
-  temp$type <- as.character(sapply(temp$Param,function(x){
-    
-    if(grepl("odds",x)){ 
-      "odds"
-    }else if (grepl("last",x)){
-      "last occ"
-    }else if (grepl("first",x)){
-      "first occ"
-    } else {
-      "change"
-    }}))
-  
-  temp$model <- c("OD","OD","OD","OD","truth","truth","truth","truth",
-                  "naive","naive","naive","naive")
-  
-  temp$model <- factor(temp$model, levels=c("truth","naive","OD"))
-  temp$type <- factor(temp$type, levels=c("first occ","last occ","change","odds"))
+  temp <- rbind(modelSummaries,rawSummaries,trueSummaries)
+
+  temp$model <- sapply(temp$Param,function(x)strsplit(x,"\\.")[[1]][1])
+  temp$type <- sapply(temp$Param,function(x)strsplit(x,"\\.")[[1]][2])
   
   print(ggplot(temp)+
           geom_crossbar(aes(x=model,y=medianQ,ymin=lowerQ,ymax=upperQ),width=0.4)+
@@ -227,83 +281,80 @@ plotComparison <- function(modelSummaries,rawSummaries){
 }
 
 
-plotSE <- function(out,outRaw){
-  
-  #for occupancy detection model
-  outCombined <- combineOut(out)
-  outSummaries <- subset(outCombined,Param %in%c ("model.odds","model.last"))
-  outSummaries <- ddply(outSummaries,.(Param),summarise,
-                        lowerQ=quantile(sd,0.25),
-                        medianQ=quantile(sd,0.5),
-                        upperQ=quantile(sd,0.75))
-  
-  #from raw data
-  Param <- c("basic.odds","basic.last")
-  lowerQ <- c(quantile(outRaw$lmerPsiOdds_se,0.25),
-              quantile(outRaw$lmerPsiLast_se,0.25))
-  
-  medianQ <- c(quantile(outRaw$lmerPsiOdds_se,0.5),
-               quantile(outRaw$lmerPsiLast_se,0.5))
-  
-  upperQ <- c(quantile(outRaw$lmerPsiOdds_se,0.75),
-              quantile(outRaw$lmerPsiLast_se,0.75))
-  
-  temp <- data.frame(Param,lowerQ,medianQ,upperQ)
-  
-  allSE <- rbind(outSummaries,temp)
-  allSE$Model <- sapply(allSE$Param,function(x)strsplit(x,"\\.")[[1]][1])
-  allSE$Param <- sapply(allSE$Param,function(x)strsplit(x,"\\.")[[1]][2])
-  
-  print(ggplot(allSE)+
-          geom_crossbar(aes(x=Model,y=medianQ,ymin=lowerQ,ymax=upperQ),width=0.4)+
-          facet_wrap(~Param,scales="free")+
-          ylab("Parameter")+
-          theme_bw())
-  
-}
+# plotSE <- function(out,outRaw){
+#   
+#   #for occupancy detection model
+#   outCombined <- combineOut(out)
+#   outSummaries <- subset(outCombined,Param %in%c ("model.odds","model.last"))
+#   outSummaries <- ddply(outSummaries,.(Param),summarise,
+#                         lowerQ=quantile(sd,0.25),
+#                         medianQ=quantile(sd,0.5),
+#                         upperQ=quantile(sd,0.75))
+#   
+#   #from raw data
+#   Param <- c("basic.odds","basic.last")
+#   lowerQ <- c(quantile(outRaw$lmerPsi_Odds_se,0.25),
+#               quantile(outRaw$lmerPsi_Last_se,0.25))
+#   
+#   medianQ <- c(quantile(outRaw$lmerPsi_Odds_se,0.5),
+#                quantile(outRaw$lmerPsi_Last_se,0.5))
+#   
+#   upperQ <- c(quantile(outRaw$lmerPsi_Odds_se,0.75),
+#               quantile(outRaw$lmerPsi_Last_se,0.75))
+#   
+#   temp <- data.frame(Param,lowerQ,medianQ,upperQ)
+#   
+#   allSE <- rbind(outSummaries,temp)
+#   allSE$Model <- sapply(allSE$Param,function(x)strsplit(x,"\\.")[[1]][1])
+#   allSE$Param <- sapply(allSE$Param,function(x)strsplit(x,"\\.")[[1]][2])
+#   
+#   print(ggplot(allSE)+
+#           geom_crossbar(aes(x=Model,y=medianQ,ymin=lowerQ,ymax=upperQ),width=0.4)+
+#           facet_wrap(~Param,scales="free")+
+#           ylab("Parameter")+
+#           theme_bw())
+#   
+# }
 
 ###difference plots##################################################################
 
-plotDifference <- function(out,outRaw){
+plotDifference <- function(Obs,out,outRaw){
+  
+  require(reshape2)
+  outObs <- combineObs(Obs)
   outCombined <- combineOut(out)
+  outModels <- acast(outCombined,simRep~Param,value.var="mean")
+  allData <- cbind(outModels,outObs,outRaw)
   
   #first occupancy
-  firstData <- subset(outCombined,Param=="model.first")
-  firstData$basic.first <- outRaw$lmerPsiFirst
-  names(firstData)[which(names(firstData)=="mean")] <- "model.first"
-  firstData$model_vs_true <- firstData$model.first - firstData$truePsiFirst
-  firstData$basic_vs_true <- firstData$basic.first - firstData$truePsiFirst
+  firstData <- allData[,grepl("first",names(allData))]
+  firstData$model_vs_true <- firstData$model.first - firstData$true.first
+  firstData$raw_vs_true <- firstData$raw.first - firstData$true.first
   
   #last occupancy
-  lastData <- subset(outCombined,Param=="model.last")
-  lastData$basic.last <- outRaw$lmerPsiLast
-  names(lastData)[which(names(lastData)=="mean")] <- "model.last"
-  lastData$model_vs_true <- lastData$model.last - lastData$truePsiLast
-  lastData$basic_vs_true <- lastData$basic.last - lastData$truePsiLast
+  lastData <- allData[,grepl("last",names(allData))]
+  lastData$model_vs_true <- lastData$model.last - lastData$true.last
+  lastData$raw_vs_true <- lastData$raw.last - lastData$true.last
   
   #change occupancy
-  changeData <- subset(outCombined,Param=="model.change")
-  changeData$basic.change <- outRaw$lmerPsiChange
-  names(changeData)[which(names(changeData)=="mean")] <- "model.change"
-  changeData$model_vs_true <- changeData$model.change - changeData$truePsiChange
-  changeData$basic_vs_true <- changeData$basic.change - changeData$truePsiChange
+  changeData <- allData[,grepl("change",names(allData))]
+  changeData$model_vs_true <- changeData$model.change - changeData$true.change
+  changeData$raw_vs_true <- changeData$raw.change - changeData$true.change
   
   #odd occupancy
-  oddsData <- subset(outCombined,Param=="model.odds")
-  oddsData$basic.odds <- outRaw$lmerPsiOdds
-  names(oddsData)[which(names(oddsData)=="mean")] <- "model.odds"
-  oddsData$model_vs_true <- oddsData$model.odds - oddsData$truePsiOdds
-  oddsData$basic_vs_true <- oddsData$basic.odds - oddsData$truePsiOdds
+  oddsData <- allData[,grepl("odds",names(allData))]
+  oddsData$model_vs_true <- oddsData$model.odds - oddsData$true.odds
+  oddsData$raw_vs_true <- oddsData$raw.odds - oddsData$true.odds
 
   #melt data frame
   require(reshape2)
-  firstDataM <- melt(firstData[,c("model_vs_true","basic_vs_true")])
+  firstDataM <- melt(firstData[,c("model_vs_true","raw_vs_true")])
   firstDataM$Param <- "first"
-  lastDataM <- melt(lastData[,c("model_vs_true","basic_vs_true")])
+  lastDataM <- melt(lastData[,c("model_vs_true","raw_vs_true")])
   lastDataM$Param <- "last"
-  changeDataM <- melt(changeData[,c("model_vs_true","basic_vs_true")])
+  changeDataM <- melt(changeData[,c("model_vs_true","raw_vs_true")])
   changeDataM$Param <- "change"
-  oddsDataM <- melt(oddsData[,c("model_vs_true","basic_vs_true")])
+  oddsDataM <- melt(oddsData[,c("model_vs_true","raw_vs_true")])
   oddsDataM$Param <- "odds"
   
   
@@ -360,7 +411,38 @@ get.or.se <- function(model) {
 }
 
 
+####power analysis########################################################
 
+#number of times a significant trend was detected
+
+powerAnalysis <- function(out,outRaw){
+
+#raw analysis
+  powerRaw <- nrow(subset(outRawT,raw.Sigtrend<0.05))
+ 
+#jags model
+  outCombined <- combineOut(out)
+  outCombined$Sig <- 0
+  outCombined$Sig[outCombined$X2.5.<0 & outCombined$X97.5.<0] <- 1
+  outCombined$Sig[outCombined$X2.5.>0 & outCombined$X97.5.>0] <- 1
+  powerModel <- sum(outCombined$Sig[outCombined$Param=="model.trend"])
+  N=length(outCombined$Sig[outCombined$Param=="model.trend"])
+
+  #combine
+  temp <- data.frame(model=c("raw","model"),power=c(powerRaw/N,powerModel/N))
+  
+  #plot
+  require(ggplot2)
+  print(ggplot(temp,aes(x=model,y=power))+
+    geom_bar(stat="identity"))
+  
+  return(temp)
+  
+}
+
+
+
+###########################################################################
 
 
 
