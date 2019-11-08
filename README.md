@@ -11,7 +11,7 @@ Specifically we aim to:
 ### Simulation steps
 The core model file is called "sims_workflow.Rmd".
 
-The steps are the analysis are:
+The steps of the analysis are:
 
 (1) generate an idealized community based on a known set of parameters
   - parameters are input in a csv sheet
