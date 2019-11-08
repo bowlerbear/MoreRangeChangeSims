@@ -119,7 +119,7 @@ getRepeatAbundVisits <- function(Abund, NVisits, DetProb,
   
   #site and year random variation (observer variation)
   df <- unique(Abund[,c("Year","Site")])
-  df$Noise <- rnorm(nrow(df),0,0.05)
+  df$Noise <- rnorm(nrow(df),0,0.01)
   Abund$Noise <- df$Noise[match(interaction(Abund$Year,Abund$Site),
                               interaction(df$Year,df$Site))]
   
