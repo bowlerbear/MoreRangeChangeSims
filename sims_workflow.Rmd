@@ -9,6 +9,9 @@ knitr::opts_chunk$set(echo = TRUE)
 library(boot)
 library(ggplot2)
 
+#poisson raw data
+#calc prop change in proportion of sites
+
 ```
 
 Get parameter file and time stamp
@@ -21,7 +24,7 @@ parameterDF <- read.csv("C:/Users/db40fysa/Desktop/parameters_moreRangeChangeSim
 #parameteDF is a file with the list of the all the parameters and their values for each simulation run
 
 #decie on which run
-type=2
+type = 2
 
 systemTime <- gsub(" ","_", Sys.time(),fixed=TRUE)
 systemTime <- gsub(":","-",systemTime)
@@ -47,8 +50,9 @@ Create some replicated worlds
 
 ```{r, echo=FALSE, results='hide'}
 
-Obs <- replicate(50,getSims(mysimNu=type),simplify=FALSE)
+Obs <- replicate(10,getSims(mysimNu=type),simplify=FALSE)
 getObsSummaries(Obs)
+trueSummaries <- gettrueSummaries(combineObs(Obs))
 
 ```
 
@@ -65,7 +69,7 @@ Compare real and predicted intercept (psi1) and slope (psi change from last to f
 
 ```{r}
 
-checkResults(out)
+checkResults(out,Obs)
 
 ```
 
@@ -81,8 +85,9 @@ Compare to the analysis of raw data
 
 ```{r, message=FALSE, warning=FALSE}
 
-outRaw<- ldply(Obs,function(x)rawdataAnalysis(x))
-#save(outRaw,file=paste0("output/outRaw_",type,"_",samplingType,"_",systemTime,".RData"))
+outRaw <- ldply(Obs,function(x)rawdataAnalysis(x))
+
+#save(outRaw,file=paste0("output/outRaw_",type,"_",systemTime,".RData"))
 rawSummaries <- getrawSummaries(outRaw)
 
 ```
@@ -90,23 +95,48 @@ rawSummaries <- getrawSummaries(outRaw)
 plot comparison
 ```{r}
 
-plotComparison(modelSummaries,rawSummaries)
+plotComparison(modelSummaries,rawSummaries,trueSummaries)
 #500/250
 
 ```
 
 plot comparison of differences
 ```{r}
-plotDifference(out,outRaw)
+plotDifference(Obs,out,outRaw)
 
 ```
 
-plot se of change
+power analysis
+
 ```{r}
 
 plotSE(out,outRaw)
 
 ```
+
+
+Later comparison
+```{r}
+
+type <- 17
+
+#load outputs
+files <- list.files("output/")
+setwd("output")
+load(files[grepl(paste("out",type,sep="_"),files)])
+load(files[grepl(paste("outRaw",type,sep="_"),files)])
+
+#summarise
+modelSummaries <- getModelSummaries(out)
+rawSummaries <- getrawSummaries(outRaw)
+
+#plot
+plotComparison(modelSummaries,rawSummaries)
+plotDifference(out,outRaw)
+
+```
+
+
 
 Atlas scenarios
 
