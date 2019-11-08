@@ -52,6 +52,14 @@ for (t in 1:nyear) {
   psi.fs[t] <- sum(z[1:nsite, t])/nsite
 } 
 
+# Overall trend in occpuancy
+sumY <- sum(psi.fs[1:nyear])
+for (t in 1:nyear) {
+	sumxy[t] <- psi.fs[t]*t
+}
+sumXY <- sum(sumxy[1:nyear])
+regres.psi <- (sumXY - ((sumX*sumY)/nyear))/(sumX2 - ((sumX*sumX)/nyear))
+
 #calculate mean occupancy
 mean.psi <- mean(psi.fs)
 
@@ -60,7 +68,7 @@ first.psi <- a[1]
 last.psi <- a[nyear]
 
 #get mean change in occupancy
-mean.psi.change <- a[nyear]/a[1]
+mean.psi.change <- (last.psi-first.psi)/first.psi
 
 #log odds change in occupancy
 odds.psi.change <- logit.a[nyear] - logit.a[1]
