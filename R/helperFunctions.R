@@ -1,10 +1,8 @@
+library(plyr)
 ###simulated worlds############################################################################
 #wrapper functions
 
-getSims <- function(mysimNu){
-  
-  #get all params
-  getParams(parameterDF,mysimNu)
+getSims <- function(){
   
   if(samplingType=="Occurrence"){
     Occ <- getOccuHistory(occProb = OccProb, Seffects, Teffects, Ieffects,
@@ -21,17 +19,15 @@ getSims <- function(mysimNu){
   
 }
 
-
-getModels <- function(Obs,type=1){
+getModels <- function(Obs,bias="standard",myModel){
   
   modelData <- getSpartaFormat(Obs,focalSpecies,subsetPositive)
   bugs.data <- getBugsData(modelData)
   modelSummary <- runModel(bugs.data,modelData,focalSpecies,myModel)
-  modelSummary$Type <- type
+  modelSummary$Bias <- bias
 
   return(modelSummary)
 }
-
 
 ####simulation summaries###############################################################################
 
@@ -106,7 +102,7 @@ gettrueSummaries <- function(x){
   
 }
 
-###rawData analysis#############################################################################################
+###raw data analysis#############################################################################################
 
 #https://stats.idre.ucla.edu/r/faq/how-can-i-estimate-the-standard-error-of-transformed-regression-parameters-in-r-using-the-delta-method/
 rawdataAnalysis <- function(Obs){
@@ -119,9 +115,12 @@ rawdataAnalysis <- function(Obs){
   require(boot)
   e <- 0.00000001
 
-    
-    lmer1 <- glmer(Obs ~ (factor(Year)-1)+(1|Site),data=subset(modelData,!is.na(Obs)),
-                 family=binomial)
+  #simplify data into presence/absence for each year
+    siteData <- ddply(modelData,.(Year,Site),summarise,
+                      P=length(unique(Occurence[!is.na(Obs) & Obs>0])))
+  
+    #fixed effect year model    
+    lmer1 <- glm(P ~ (factor(Year)-1),data=siteData,family=binomial)
   
     #extract output
     
@@ -136,10 +135,6 @@ rawdataAnalysis <- function(Obs){
     lmerPsi_Odds <- lmerPsi_Last - lmerPsi_First
     lmerPsi_Odds_se <- sqrt(lmerPsi_Last_se^2 + lmerPsi_First_se^2)
     
-    #estimate se using delta method
-    require(msm)
-    lmerPsi_First_se <- deltamethod(~ exp(x1)/(1+exp(x1)), lmerPsi_First, vcov(lmer1)[1,1])
-    lmerPsi_Last_se <- deltamethod(~ exp(x1)/(1+exp(x1)), lmerPsi_Last, vcov(lmer1)[len,len])
     
     #change first and last into probability
     lmerPsi_First <- inv.logit(lmerPsi_First)
@@ -155,26 +150,46 @@ rawdataAnalysis <- function(Obs){
                        #raw.odds.se=lmerPsi_Odds_se)
     
     #simple trend model
-    
-    #trend in proportion of sites occupied??
-    
-    lmer1 <- glmer(Obs ~ Year+(1|Site),data=subset(modelData,!is.na(Obs)),
-                   family=binomial)
+    lmer1 <- glm(P ~ Year,data=siteData,family=binomial)
 
-    lmerPsi_trend <- summary(lmer1)$coefficients[2,1]
-    lmerPsi_trend_se <- summary(lmer1)$coefficients[2,2]
+    #predict occurence in final year
+    last <- predict(lmer1,newdata=data.frame(Year=NYears),type="response")
+    #predict occurence in first year
+    first <- predict(lmer1,newdata=data.frame(Year=1),type="response")
+    lmerPsi_trend = (last-first)/NYears
+    
+    #power stats
     lmerPsi_trend_z <- summary(lmer1)$coefficients[2,3]
     lmerPsi_trend_sig <- summary(lmer1)$coefficients[2,4]
+    
+    
     
     temp2 <- data.frame(raw.trend=lmerPsi_trend,
                        raw.Ztrend=lmerPsi_trend_z,
                        raw.Sigtrend=lmerPsi_trend_sig)
     
+    
+    #total sites poisson trend model
+    siteData <- ddply(modelData,.(Year),summarise,
+                      nSites=length(unique(Site[!is.na(Obs) & Obs>0])))
+    siteData$totalSites <- length(unique(modelData$Site))
 
-  return(cbind(temp,temp2))
+    glm1 <- glm(cbind(nSites,totalSites-nSites) ~ Year,data=siteData,family=binomial)
+    #predict occurence in final year
+    last <- predict(glm1,newdata=data.frame(Year=NYears),type="response")
+    #predict occurence in first year
+    first <- predict(glm1,newdata=data.frame(Year=1),type="response")
+    glmPsi_trend = (last-first)/NYears
+    
+    glmPsi_trend_z <- summary(glm1)$coefficients[2,3]
+    glmPsi_trend_sig <- summary(glm1)$coefficients[2,4]
+    
+    temp3 <- data.frame(rawP.trend=glmPsi_trend,
+                        rawP.Ztrend=glmPsi_trend_z,
+                        rawP.Sigtrend=glmPsi_trend_sig)
+
+  return(cbind(temp,temp2,temp3))
 }
-
-#also add a raw poisson analysis################
 
 getrawSummaries <- function(outRaw){
   
@@ -214,6 +229,25 @@ combineOut <- function(out){
   
 }
 
+getModelSummaries <- function(out){
+  
+  outCombined <- combineOut(out)
+  
+  outSummaries <- subset(outCombined,Param %in%c ("model.change","model.odds",
+                                                  "model.last","model.first",
+                                                  "model.trend"))
+  
+  outSummaries <- ddply(outSummaries,.(Param,Bias),summarise,
+                        lowerQ=quantile(mean,0.25),
+                        medianQ=quantile(mean,0.5),
+                        upperQ=quantile(mean,0.75),
+                        lowerQ_sd=quantile(sd,0.25),
+                        medianQ_sd=quantile(sd,0.5),
+                        upperQ_sd=quantile(sd,0.75))
+  
+  return(outSummaries)
+}
+
 ###compare results##########################################################################
 
 checkResults <- function(out,Obs){
@@ -246,24 +280,6 @@ checkResults <- function(out,Obs){
   
 }
 
-
-getModelSummaries <- function(out){
-  
-  outCombined <- combineOut(out)
-  
-  outSummaries <- subset(outCombined,Param %in%c ("model.change","model.odds",
-                                                  "model.last","model.first",
-                                                  "model.trend"))
-  outSummaries <- ddply(outSummaries,.(Param),summarise,
-                        lowerQ=quantile(mean,0.25),
-                        medianQ=quantile(mean,0.5),
-                        upperQ=quantile(mean,0.75))
-  
-  return(outSummaries)
-}
-
-
-
 plotComparison <- function(modelSummaries,rawSummaries,trueSummaries){
   
   temp <- rbind(modelSummaries,rawSummaries,trueSummaries)
@@ -279,42 +295,6 @@ plotComparison <- function(modelSummaries,rawSummaries,trueSummaries){
   
   return(temp)
 }
-
-
-# plotSE <- function(out,outRaw){
-#   
-#   #for occupancy detection model
-#   outCombined <- combineOut(out)
-#   outSummaries <- subset(outCombined,Param %in%c ("model.odds","model.last"))
-#   outSummaries <- ddply(outSummaries,.(Param),summarise,
-#                         lowerQ=quantile(sd,0.25),
-#                         medianQ=quantile(sd,0.5),
-#                         upperQ=quantile(sd,0.75))
-#   
-#   #from raw data
-#   Param <- c("basic.odds","basic.last")
-#   lowerQ <- c(quantile(outRaw$lmerPsi_Odds_se,0.25),
-#               quantile(outRaw$lmerPsi_Last_se,0.25))
-#   
-#   medianQ <- c(quantile(outRaw$lmerPsi_Odds_se,0.5),
-#                quantile(outRaw$lmerPsi_Last_se,0.5))
-#   
-#   upperQ <- c(quantile(outRaw$lmerPsi_Odds_se,0.75),
-#               quantile(outRaw$lmerPsi_Last_se,0.75))
-#   
-#   temp <- data.frame(Param,lowerQ,medianQ,upperQ)
-#   
-#   allSE <- rbind(outSummaries,temp)
-#   allSE$Model <- sapply(allSE$Param,function(x)strsplit(x,"\\.")[[1]][1])
-#   allSE$Param <- sapply(allSE$Param,function(x)strsplit(x,"\\.")[[1]][2])
-#   
-#   print(ggplot(allSE)+
-#           geom_crossbar(aes(x=Model,y=medianQ,ymin=lowerQ,ymax=upperQ),width=0.4)+
-#           facet_wrap(~Param,scales="free")+
-#           ylab("Parameter")+
-#           theme_bw())
-#   
-# }
 
 ###difference plots##################################################################
 
@@ -346,6 +326,11 @@ plotDifference <- function(Obs,out,outRaw){
   oddsData$model_vs_true <- oddsData$model.odds - oddsData$true.odds
   oddsData$raw_vs_true <- oddsData$raw.odds - oddsData$true.odds
 
+  #trend in occupancy
+  trendData <- allData[,grepl("trend",names(allData))]
+  trendData$model_vs_true <- trendData$model.trend - trendData$true.trend
+  trendData$raw_vs_true <- trendData$raw.trend - trendData$true.trend
+  
   #melt data frame
   require(reshape2)
   firstDataM <- melt(firstData[,c("model_vs_true","raw_vs_true")])
@@ -356,12 +341,14 @@ plotDifference <- function(Obs,out,outRaw){
   changeDataM$Param <- "change"
   oddsDataM <- melt(oddsData[,c("model_vs_true","raw_vs_true")])
   oddsDataM$Param <- "odds"
-  
+  trendDataM <- melt(trendData[,c("model_vs_true","raw_vs_true")])
+  trendDataM$Param <- "trend"
   
   #combine all
-  df <- rbind(firstDataM,lastDataM,changeDataM,oddsDataM)
+  df <- rbind(firstDataM,lastDataM,changeDataM,oddsDataM,trendDataM)
   names(df)[1:2] <- c("Comparison","Difference")
-  df$Param <- factor(df$Param, levels=c("first","last","change","odds"))
+  df$Param <- factor(df$Param, levels=c("first","last","change","odds","trend"))
+  
   require(ggplot2)
   g1 <- ggplot(df)+
     geom_boxplot(aes(x=Comparison,y=Difference),outlier.shape = NA)+
@@ -371,6 +358,65 @@ plotDifference <- function(Obs,out,outRaw){
     theme_bw()
   print(g1)
 }
+
+
+
+getDifferences <- function(Obs,out,outRaw){
+  
+  require(reshape2)
+  outObs <- combineObs(Obs)
+  outCombined <- combineOut(out)
+  outModels <- acast(outCombined,simRep~Param,value.var="mean")
+  allData <- cbind(outModels,outObs,outRaw)
+  
+  #first occupancy
+  firstData <- allData[,grepl("first",names(allData))]
+  firstData$model_vs_true <- firstData$model.first - firstData$true.first
+  firstData$raw_vs_true <- firstData$raw.first - firstData$true.first
+  
+  #last occupancy
+  lastData <- allData[,grepl("last",names(allData))]
+  lastData$model_vs_true <- lastData$model.last - lastData$true.last
+  lastData$raw_vs_true <- lastData$raw.last - lastData$true.last
+  
+  #change occupancy
+  changeData <- allData[,grepl("change",names(allData))]
+  changeData$model_vs_true <- changeData$model.change - changeData$true.change
+  changeData$raw_vs_true <- changeData$raw.change - changeData$true.change
+  
+  #odd occupancy
+  oddsData <- allData[,grepl("odds",names(allData))]
+  oddsData$model_vs_true <- oddsData$model.odds - oddsData$true.odds
+  oddsData$raw_vs_true <- oddsData$raw.odds - oddsData$true.odds
+  
+  #trend in occupancy
+  trendData <- allData[,grepl("trend",names(allData))]
+  trendData$model_vs_true <- trendData$model.trend - trendData$true.trend
+  trendData$raw_vs_true <- trendData$raw.trend - trendData$true.trend
+  
+  #melt data frame
+  require(reshape2)
+  firstDataM <- melt(firstData[,c("model_vs_true","raw_vs_true")])
+  firstDataM$Param <- "first"
+  lastDataM <- melt(lastData[,c("model_vs_true","raw_vs_true")])
+  lastDataM$Param <- "last"
+  changeDataM <- melt(changeData[,c("model_vs_true","raw_vs_true")])
+  changeDataM$Param <- "change"
+  oddsDataM <- melt(oddsData[,c("model_vs_true","raw_vs_true")])
+  oddsDataM$Param <- "odds"
+  trendDataM <- melt(trendData[,c("model_vs_true","raw_vs_true")])
+  trendDataM$Param <- "trend"
+  
+  #combine all
+  df <- rbind(firstDataM,lastDataM,changeDataM,oddsDataM,trendDataM)
+  names(df)[1:2] <- c("Comparison","Difference")
+  df$Param <- factor(df$Param, levels=c("first","last","change","odds","trend"))
+  
+  return(df)
+}
+
+
+
 
 ###results saving###########################################################################
 
@@ -410,7 +456,6 @@ get.or.se <- function(model) {
   return(or.se)
 }
 
-
 ####power analysis########################################################
 
 #number of times a significant trend was detected
@@ -442,7 +487,7 @@ powerAnalysis <- function(out,outRaw){
 
 
 
-###########################################################################
+###end########################################################################
 
 
 
