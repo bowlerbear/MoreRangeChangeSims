@@ -13,6 +13,7 @@ getParams <- function(parameterDF,mysimNu){
   
   #Define average habitat quality of each site
   Scovariate <<- rnorm(NSites,0,temp$ScovariateVar)
+  ScovariateD <<- Scovariate
   
   #Define time trend
   Tcovariate <<- (1:NYears)-1
@@ -24,11 +25,11 @@ getParams <- function(parameterDF,mysimNu){
   speciesVariation <<- temp$speciesVariation
   
   if(speciesVariation==TRUE){
-    OccProb <<- rnorm(NSpecies,temp$meanOccProb,temp$meanOccProb/10)#occupancy
-    lambda <<- rlnorm(NSpecies,temp$meanLambda,temp$meanLambda/10)#abundance
-    Seffects <<- rnorm(NSpecies,temp$meanSeffects,temp$meanSeffects/10)##Define spatial quality effects
-    Teffects <<- rnorm(NSpecies,temp$meanTeffects,temp$meanTeffects/10)#Effect of year
-    Ieffects <<- rnorm(NSpecies,temp$meanIeffects,temp$meanIeffects/10)#Effect of year
+    OccProb <<- rnorm(NSpecies,temp$meanOccProb,temp$meanOccProb/5)#occupancy
+    lambda <<- rnorm(NSpecies,temp$meanLambda,temp$meanLambda/10)#abundance
+    Seffects <<- rnorm(NSpecies,temp$meanSeffects,temp$meanSeffects/5)##Define spatial quality effects
+    Teffects <<- rnorm(NSpecies,temp$meanTeffects,temp$meanTeffects/5)#Effect of year
+    Ieffects <<- rnorm(NSpecies,temp$meanIeffects,temp$meanIeffects/5)#Effect of year
   } else{
     OccProb <<- rep(temp$meanOccProb,NSpecies)
     lambda <<- rep(temp$meanLambda, NSpecies)
@@ -47,10 +48,10 @@ getParams <- function(parameterDF,mysimNu){
   
   #Define average detection probability
   if(speciesVariation==TRUE){
-    DetProb <<- rnorm(NSpecies,temp$meanDetProb,temp$meanDetProb/10) 
-    SiteDetEffects <<- rnorm(NSpecies,temp$meanSiteDetEffects,temp$meanSiteDetEffects/10)
-    YearDetEffects <<- rnorm(NSpecies,temp$meanYearDetEffects,temp$meanYearDetEffects/10)
-    IntDetEffects <<- rnorm(NSpecies,temp$meanIntDetEffects,temp$meanIntDetEffects/10)
+    DetProb <<- rnorm(NSpecies,temp$meanDetProb,temp$meanDetProb/5) 
+    SiteDetEffects <<- rnorm(NSpecies,temp$meanSiteDetEffects,temp$meanSiteDetEffects/5)
+    YearDetEffects <<- rnorm(NSpecies,temp$meanYearDetEffects,temp$meanYearDetEffects/5)
+    IntDetEffects <<- rnorm(NSpecies,temp$meanIntDetEffects,temp$meanIntDetEffects/5)
   }else{ 
     DetProb <<- rep(temp$meanDetProb,NSpecies)
     SiteDetEffects <<- rep(temp$meanSiteDetEffects,NSpecies)
