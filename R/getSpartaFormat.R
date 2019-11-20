@@ -5,7 +5,7 @@
 # sparta occupancy model function.
 
 #melt data frame
-getSpartaFormat<-function(Obs,focalSpecies,subsetPositive){
+getSpartaFormat<-function(Obs,focalSpecies=focalSpecies,subsetPositive=TRUE){
   
   #melt data frame
   require(reshape2)
@@ -14,6 +14,9 @@ getSpartaFormat<-function(Obs,focalSpecies,subsetPositive){
   names(ObsMelted)[which(names(ObsMelted)=="value")]<-"Obs"
   ObsMelted$Visit <- as.numeric(gsub("Visit","",ObsMelted$Visit))
   ObsMelted$VisitID <- paste(ObsMelted$Year,ObsMelted$Site,ObsMelted$Visit,sep="_")
+  
+  #remove NAs
+  ObsMelted <- subset(ObsMelted,!is.na(Obs))
   
   #calculate listlength per visit
   require(plyr)
