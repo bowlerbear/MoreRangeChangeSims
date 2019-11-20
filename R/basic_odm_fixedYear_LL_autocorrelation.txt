@@ -1,0 +1,78 @@
+model{
+
+# State model
+for (i in 1:nsite){ 
+  for (t in 1:nyear){   
+    z[i,t] ~ dbern(muZ[i,t]) 
+    logit(muZ[i,t]) <- logit.a[t] + eta[i]
+  }}   
+  
+  
+
+# Observation Model
+for(j in 1:nvisit) {
+  y[j] ~ dbern(Py[j])
+  Py[j]<- z[site[j],year[j]]*p[j]
+  logit(p[j]) <- alpha.p[year[j]] + eta.p[site[j]] + beta.L*L[j] + beta.prevObs*prevObs[j]
+  }
+  
+# State model priors
+for(t in 1:nyear){
+  a[t] ~ dunif(0,1)
+  logit.a[t] <- logit(a[t])
+}
+
+#residual sampling
+for (i in 1:nsite) {
+  eta[i] ~ dnorm(0, tau2)       
+} 
+tau2 <- 1/(sigma2 * sigma2) 
+sigma2 ~ dt(0, 1, 1)T(0,) 
+  
+# Observation model priors
+for (t in 1:nyear) {
+  prop.p[t] ~ dunif(0,1)
+  alpha.p[t] <- logit(prop.p[t])
+}
+
+#site p effects
+for (i in 1:nsite) {
+  eta.p[i] ~ dnorm(0, taup2)       
+} 
+taup2 <- 1/(sigmap2 * sigmap2) 
+sigmap2 ~ dt(0, 1, 1)T(0,) 
+
+#effect of listlength  
+beta.L ~ dnorm(0, 0.01)
+beta.prevObs ~ dnorm(0,0.01)
+
+# Derived parameters
+for (t in 1:nyear) {  
+  psi.fs[t] <- sum(z[1:nsite, t])/nsite
+} 
+
+# Overall trend in occpuancy
+sumY <- sum(psi.fs[1:nyear])
+for (t in 1:nyear) {
+	sumxy[t] <- psi.fs[t]*t
+}
+sumXY <- sum(sumxy[1:nyear])
+regres.psi <- (sumXY - ((sumX*sumY)/nyear))/(sumX2 - ((sumX*sumX)/nyear))
+
+#calculate mean occupancy
+mean.psi <- mean(psi.fs)
+
+#initial occupancy - on probability scale
+first.psi <- psi.fs[1]
+last.psi <- psi.fs[nyear]
+
+#get mean change in occupancy
+mean.psi.change <-  (last.psi-first.psi)/first.psi
+
+#log odds change in occupancy
+odds.psi.change <- logit.a[nyear] - logit.a[1]
+
+#calculate mean detection probability
+mean.p <- mean(p) 
+
+} 
