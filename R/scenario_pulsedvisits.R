@@ -1,4 +1,4 @@
-pulsedVisits <- function(Obs, nStandardVisits,samplingbias=FALSE){
+pulsedVisits <- function(Obs, nStandardVisits){
   
   #only in the atlas year do we have the maximum number of visits, 
   #otherwise, we just have the standard number of visits
@@ -17,11 +17,11 @@ pulsedVisits <- function(Obs, nStandardVisits,samplingbias=FALSE){
 
 pulsedSpreadVisits <- function(Obs,SCovariate,lowProb){
   
-  #low quality sites are not visited in non-atlas years
+  #merge with site quality data
   Obs$Scovariate <- Scovariate[match(Obs$Site,1:length(Scovariate))]
   
   #identify lowest 50% quality sites
-  Obs$Low <- ifelse(Obs$Scovariate<quantile(Obs$Scovariate,0.50),1,0)
+  Obs$Low <- ifelse(Obs$Scovariate<quantile(Scovariate,0.50),1,0)
   
   #decide on atlas year
   #atlasYear <- sample(unique(Obs$Year),1)
@@ -34,6 +34,7 @@ pulsedSpreadVisits <- function(Obs,SCovariate,lowProb){
   myCols <- length(grep("Visit",names(Obs)))
   visited <- matrix(lowProb,nrow=myRows,ncol=myCols)
   visited <- apply(visited,1:2,function(x)rbinom(1,1,x))
+  
   #set to NA when no visit
   visited[visited!=1] <- NA
   Obs[!Obs$Year%in%atlasYear & Obs$Low ==1,grep("Visit",names(Obs))] <- 
