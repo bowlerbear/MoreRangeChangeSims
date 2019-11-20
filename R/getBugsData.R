@@ -10,6 +10,10 @@ getBugsData <- function(modelData){
                     sumX=sum(unique(modelData$Year)), 
                     sumX2=sum(unique(modelData$Year)^2))
   
+  if("prevObs" %in% names(modelData)){
+    bugs.data$prevObs <- modelData$prevObs
+  }
+  
   return(bugs.data)
   
 }
