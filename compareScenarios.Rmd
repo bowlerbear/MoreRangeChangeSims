@@ -1,0 +1,218 @@
+---
+title: "compareScenarios"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+get scenarios
+
+```{r}
+
+#get original observations
+type <- 21 # trend model
+getParams(parameterDF,mysimNu=type)
+load("output/Obs_21_2019-11-12_15-30-01.RData")
+load("output/Obs_22_2019-11-12_15-30-01.RData")
+
+#or
+load("output/Obs_21_2019-11-16_19-02-31.RData")
+load("output/Obs_22_2019-11-16_19-12-23.RData")
+
+
+#trend models
+model <- "standard"
+model <- "Autocorrelation"
+model <- "Autocorrelation100"
+model <- "FullAutocorrelation"
+model <- "Pulsed"
+model <- "Spread"
+model <- "SpreadLower"
+model <- "ReducedQ"
+model <- "ReducedDD"
+
+#load outputs
+files <- list.files("output/")
+load(paste("output",files[grepl(paste0("out_",model,type),files)],sep="/"))
+load(paste("output",files[grepl(paste0("outRaw_",model,type),files)],sep="/"))
+
+#summarise
+modelSummaries <- getModelSummaries(out)[,c(1,3:5)]
+rawSummaries <- getrawSummaries(outRaw)
+trueSummaries <- gettrueSummaries(combineObs(Obs))
+
+#plot
+plotComparison(modelSummaries,rawSummaries,trueSummaries)
+plotDifference(Obs,out,outRaw)
+
+```
+
+Get all at once
+
+```{r}
+
+type <- 22 # trend model
+getParams(parameterDF,mysimNu=type)
+load("output/Obs_21_2019-11-12_15-30-01.RData")
+load("output/Obs_22_2019-11-12_15-30-01.RData")
+
+
+#trend models
+myModels <- c("Autocorrelation","FullAutocorrelation","Pulsed","Spread","SpreadLower","ReducedQ")
+
+
+allOutput <- ldply(myModels,function(x){
+  model <- x
+files <- list.files("output/")
+load(paste("output",files[grepl(paste0("out_",model,type),files)],sep="/"))
+load(paste("output",files[grepl(paste0("outRaw_",model,type),files)],sep="/"))
+
+temp <- getDifferences(Obs,out,outRaw)
+
+temp$model <- model
+return(temp)
+
+})
+
+#get quantiles
+allOutputSummary <- ddply(allOutput,.(Comparison,Param,model),summarise,
+                          lowerQ = quantile(Difference,0.25),
+                          medianQ = quantile(Difference,0.5),
+                          upperQ = quantile(Difference,0.75))
+
+```
+
+next set
+
+```{r}
+
+type <- 22 # trend model
+getParams(parameterDF,mysimNu=type)
+load("output/Obs_21_2019-11-16_19-02-31.RData")
+load("output/Obs_22_2019-11-16_19-12-23.RData")
+
+
+#trend models
+myModels <- c("ReducedD","ReducedQD","ReducedDD","SpecialistSp","DeclineSp")
+
+
+allOutput <- ldply(myModels,function(x){
+  model <- x
+files <- list.files("output/")
+load(paste("output",files[grepl(paste0("out_",model,type),files)],sep="/"))
+load(paste("output",files[grepl(paste0("outRaw_",model,type),files)],sep="/"))
+
+temp <- getDifferences(Obs,out,outRaw)
+
+temp$model <- model
+return(temp)
+
+})
+
+#get quantiles
+allOutputSummary2 <- ddply(allOutput,.(Comparison,Param,model),summarise,
+                          lowerQ = quantile(Difference,0.25),
+                          medianQ = quantile(Difference,0.5),
+                          upperQ = quantile(Difference,0.75))
+
+```
+
+```{r}
+
+#combine all
+allOutputSummary <- rbind(allOutputSummary,allOutputSummary2)
+
+#give better names
+allOutputSummary <- subset(allOutputSummary,Param %in% c("first","trend"))
+allOutputSummary$Param <- factor(allOutputSummary$Param)
+levels(allOutputSummary$Param) <- c("intercept","trend")
+allOutputSummary$bias <- as.factor(allOutputSummary$model)
+levels(allOutputSummary$bias) <- c("autocorrelation","declining species",
+                                   "full autocorrelation","pulsed",
+                                  "fewer detections(biased)","fewer detections(biased/declining)", 
+                                   "habitat quality","fewer visits(biased/declining)",
+                                  "specialist species","fewer sites","fewer sites(biased)")
+
+
+allOutputSummary$bias <- factor(allOutputSummary$bias,
+                                levels=rev(c("autocorrelation","full autocorrelation",
+                                             "pulsed","fewer sites","fewer sites(biased)",
+                                         "habitat quality","fewer visits(biased/declining)",
+                                         "fewer detections(biased)","fewer detections(biased/declining)",
+                                         "specialist species","declining species")))
+
+levels(allOutputSummary$Comparison) <- c("ODM_vs_true","GLM_vs_true")
+
+#get rid of odds
+ggplot(data=allOutputSummary)+
+  geom_crossbar(aes(x=bias,y=medianQ,ymin=lowerQ,ymax=upperQ,fill=Comparison),
+                position="dodge",width=rel(0.5))+
+  facet_wrap(~Param,scales="free")+
+  geom_hline(yintercept=0,colour="black",linetype="dashed")+
+  theme_bw()+
+  coord_flip()+
+  xlab("Bias")+ylab("Difference in estimate")+
+  theme(legend.position="top")
+
+ggplot(data=subset(allOutputSummary,Comparison=="model_vs_true"))+
+  geom_crossbar(aes(model,y=medianQ,ymin=lowerQ,ymax=upperQ),
+                position="dodge",width=rel(0.5))+
+  facet_wrap(~Param,scales="free")+
+  geom_hline(yintercept=0,colour="black",linetype="dashed")+
+  theme_bw()+
+  coord_flip()
+
+```
+
+get modelSummaries
+
+```{r}
+
+type <- 21 # trend model
+
+#trend models
+myModels <- c("standard","Autocorrelation","FullAutocorrelation","Pulsed","Spread","SpreadLower","ReducedQ",
+              "ReducedD","ReducedQD","ReducedDD","SpecialistSp","DeclineSp")
+
+allOutput <- ldply(myModels,function(x){
+  model <- x
+  files <- list.files("output/")
+  load(paste("output",files[grepl(paste0("out_",model,type),files)],sep="/"))
+  modelSummaries <- getModelSummaries(out)
+  modelSummaries$model <- model
+  return(modelSummaries)
+})
+
+
+allOutput <- subset(allOutput,Param %in% c("model.first","model.trend"))
+allOutput$Param <- factor(allOutput$Param)
+levels(allOutput$Param) <- c("intercept","trend")
+allOutput$bias <- as.factor(allOutput$model)
+
+levels(allOutput$bias) <- c("autocorrelation","declining species",
+                                   "full autocorrelation","pulsed",
+                                  "fewer detections(biased)","fewer detections(biased/declining)", 
+                                   "habitat quality","fewer visits(biased/declining)",
+                                  "specialist species","fewer sites","fewer sites(biased)","no bias")
+
+
+allOutput$bias <- factor(allOutput$bias,
+                                levels=rev(c("no bias","autocorrelation","full autocorrelation",
+                                             "pulsed","fewer sites","fewer sites(biased)",
+                                         "habitat quality","fewer visits(biased/declining)",
+                                         "fewer detections(biased)","fewer detections(biased/declining)",
+                                         "specialist species","declining species")))
+
+
+ggplot(data=allOutput)+
+  geom_crossbar(aes(x=bias,y=medianQ_sd,ymin=lowerQ_sd,ymax=upperQ_sd),
+                width=rel(0.5))+
+  facet_wrap(~Param,scales="free")+
+  theme_bw()+
+  coord_flip()+
+  xlab("Bias")+ylab("SD")+
+  theme(legend.position="top")
+
+```
