@@ -55,7 +55,7 @@ getRepeatVisits <- function(Occ, NVisits, DetProb,
   
   #site and year random variation (observer variation)
   df <- unique(Occ[,c("Year","Site")])
-  df$Noise <- rnorm(nrow(df),0,0.01)
+  df$Noise <- rnorm(nrow(df),0,0.1)
   Occ$Noise <- df$Noise[match(interaction(Occ$Year,Occ$Site),
                               interaction(df$Year,df$Site))]
   
@@ -119,16 +119,16 @@ getRepeatAbundVisits <- function(Abund, NVisits, DetProb,
   
   #site and year random variation (observer variation)
   df <- unique(Abund[,c("Year","Site")])
-  df$Noise <- rnorm(nrow(df),0,0.01)
+  df$Noise <- rnorm(nrow(df),0,0.1)
   Abund$Noise <- df$Noise[match(interaction(Abund$Year,Abund$Site),
                               interaction(df$Year,df$Site))]
   
   #detection model (individual level) - linear predictor on logit scale
   lgtDetProb <- apply(Abund, 1, function(x) {
       logit(DetProb[x["Species"]]) +
-      SiteDetEffects[x["Species"]] * Scovariate[x["Site"]] + 
+      SiteDetEffects[x["Species"]] * ScovariateD[x["Site"]] + 
       YearDetEffects[x["Species"]] * Tcovariate[x["Year"]] +  
-      IntDetEffects[x["Species"]] * Scovariate[x["Site"]] * Tcovariate[x["Year"]]
+      IntDetEffects[x["Species"]] * ScovariateD[x["Site"]] * Tcovariate[x["Year"]]
   })
   
   if(Noise==T){
@@ -151,8 +151,8 @@ getRepeatAbundVisits <- function(Abund, NVisits, DetProb,
   Obs <- replicate(NVisits,sapply(Abund$DetProb,function(x)rbinom(1,1,x)))
   
   #convert abundance to occurence
-  names(Abund)[which(names(Abund)=="Abund")] <- "Occurence"
-  Abund$Occurence[Abund$Occurence>0] <- 1
+  Abund$Occurence <- 0
+  Abund$Occurence[Abund$Abund>0] <- 1
   
   #add on replciate visits
   Obs[Abund$Occurence==0,] <- 0#not necessary
