@@ -62,8 +62,8 @@ regres.psi <- (sumXY - ((sumX*sumY)/nyear))/(sumX2 - ((sumX*sumX)/nyear))
 mean.psi <- mean(psi.fs)
 
 #initial occupancy - on probability scale
-first.psi <- a[1]
-last.psi <- a[nyear]
+first.psi <- psi.fs[1]
+last.psi <- psi.fs[nyear]
 
 #get mean change in occupancy
 mean.psi.change <-  (last.psi-first.psi)/first.psi
