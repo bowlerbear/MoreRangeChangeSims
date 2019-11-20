@@ -95,6 +95,7 @@ getOccuHistory <- function(occProb, Seffects, Teffects, Ieffects,
   #convert into probabilities
   library(boot)
   PrOcc <-inv.logit(lgtPrOcc)
+  #hist(PrOcc)
   
   #perform binomial sampling
   Occ <- apply(PrOcc, c(1,2), function(pr) rbinom(length(pr), 1, pr))
@@ -130,6 +131,7 @@ getAbundHistory <- function(lambda, Seffects, Teffects, Ieffects,
   
   #convert into probabilities
   PrAbund <- exp(lgAbund)
+  #hist(PrAbund)
   
   #perform binomial sampling
   Abund <- apply(PrAbund, c(1,2), function(pr) sapply(pr,function(x)rpois(1,x)))
