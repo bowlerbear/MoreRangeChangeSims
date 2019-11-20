@@ -1,0 +1,107 @@
+model{
+
+# State model
+
+#first year/initial occupancy, model
+  for (i in 1:nsite){ 
+
+    #data distribution
+    z[i,1] ~ dbern(psi1[i,1])
+
+    #model
+    logit(psi1[i,1]) <- eta[i] 
+  }
+
+  #subsequent years
+  for (i in 1:nsite){ 
+    for (t in 2:nyear){
+
+      #data distribution
+      z[i,t] ~ dbern(muZ[i,t]) 
+
+      #overall model
+      muZ[i,t] <- persist[i,t-1]*z[i,t-1] + colonization[i,t-1]*(1-z[i,t-1])
+
+      #persistence occupancy model
+      logit(persist[i,t-1]) <- a.persist[t-1] 
+
+      #colonization occupancy model
+      logit(colonization[i,t-1]) <- a.colonize[t-1] 
+    }
+  }   
+
+# Observation Model
+for(j in 1:nvisit) {
+  y[j] ~ dbern(Py[j])
+  Py[j]<- z[site[j],year[j]]*p[j]
+  logit(p[j]) <-  alpha.p[year[j]]+ beta.L*L[j] 
+}
+
+# State model priors
+
+#spatial
+for (i in 1:nsite) {
+  eta[i] ~ dnorm(mu.eta, tau2)       
+} 
+
+mu.eta ~ dnorm(0,0.01)
+tau2 <- 1/(sigma2 * sigma2) 
+sigma2 ~ dt(0, 1, 1)T(0,) 
+
+#temporal
+mu.persist ~ dnorm(0, 0.01)
+for(t in 1:(nyear-1)){
+  a.persist[t] ~ dnorm(mu.persist, tau.a.p)
+}
+tau.a.p <- 1/(sd.a.p * sd.a.p)
+sd.a.p ~ dt(0, 1, 1)T(0,)
+
+mu.colonize ~ dnorm(0, 0.01)
+for(t in 1:(nyear-1)){
+  a.colonize[t] ~ dnorm(mu.colonize, tau.a.c)
+}
+tau.a.c <- 1/(sd.a.c * sd.a.c)
+sd.a.c ~ dt(0, 1, 1)T(0,)
+
+  
+# Observation model priors 
+for (t in 1:nyear) {
+  alpha.p[t] ~ dnorm(mu.lp, tau.lp)            
+}
+
+mu.lp ~ dnorm(0, 0.01)
+tau.lp <- 1 / (sd.lp * sd.lp)                 
+sd.lp ~ dt(0, 1, 1)T(0,)  
+  
+beta.L ~ dnorm(0,0.01)
+  
+# Derived parameters
+for (t in 1:nyear) {  
+  psi.fs[t] <- sum(z[1:nsite, t])/nsite
+} 
+
+# overall trend in occpuancy
+sumY <- sum(psi.fs[1:nyear])
+for (t in 1:nyear) {
+	sumxy[t] <- psi.fs[t]*t
+}
+sumXY <- sum(sumxy[1:nyear])
+regres.psi <- (sumXY - ((sumX*sumY)/nyear))/(sumX2 - ((sumX*sumX)/nyear))
+
+#calculate mean occupancy
+mean.psi <- mean(psi.fs)
+
+#initial occupancy - on probability scale
+first.psi <- psi.fs[1]
+last.psi <- psi.fs[nyear]
+
+#get mean change in occupancy
+mean.psi.change <-  (last.psi-first.psi)/first.psi
+
+#log odds change in occupancy
+odds.psi.change <- a.persist[nyear-1] - a.persist[1]
+
+#calculate mean detection probability
+mean.p <- mean(p) 
+
+} 
